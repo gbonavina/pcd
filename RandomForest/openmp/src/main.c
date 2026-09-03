@@ -5,9 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <time.h>
+
 static double wall_now(void)
 {
-    return omp_get_wtime();
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 }
 
 static void usage(const char *argv0)
