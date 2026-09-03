@@ -650,15 +650,19 @@ static int majority_class(const int *counts, int n_classes) {
     return best;
 }
 
+// gini = 1 - somatorio((qtd_classe/qtd_total)^2)
 static double gini_from_counts(const int *c, int n_classes, int n) {
     if (n <= 0)
         return 0.0;
-    double g = 1.0;
+
+    // c = histograma
+
+    double somatorio = 0.0;
     for (int k = 0; k < n_classes; k++) {
         double p = (double)c[k] / (double)n;
-        g -= p * p;
+        somatorio += p * p;
     }
-    return g;
+    return 1.0 - somatorio;
 }
 
 typedef struct {
@@ -982,6 +986,37 @@ double forest_accuracy(const Forest *f, const Dataset *ds) {
             ok++;
     free(pred);
     return (double)ok / (double)ds->n_samples;
+}
+
+int forest_write_dot(const Forest *f, int tree_index, const char *path) {
+    if (!f || !f->trees || !path || tree_index < 0 || tree_index >= f->n_trees)
+        return -1;
+    const Tree *t = &f->trees[tree_index];
+    FILE *fp = fopen(path, "w");
+    if (!fp)
+        return -1;
+
+    fprintf(fp, "digraph tree_%d {\n", tree_index);
+    fprintf(fp, "  rankdir=TB;\n");
+    fprintf(fp, "  node [fontname=Helvetica];\n");
+    for (int i = 0; i < t->n_nodes; i++) {
+        const Node *nd = &t->nodes[i];
+        if (nd->feature < 0) {
+            fprintf(fp,
+                    "  n%d [label=\"class %d\", shape=box, style=filled, "
+                    "fillcolor=\"#d5e8d4\"];\n",
+                    i, nd->pred_class);
+            continue;
+        }
+        fprintf(fp, "  n%d [label=\"x[%d] <= %.4g\"];\n", i, nd->feature,
+                nd->threshold);
+        if (nd->left >= 0 && nd->left < t->n_nodes)
+            fprintf(fp, "  n%d -> n%d [label=\"yes\"];\n", i, nd->left);
+        if (nd->right >= 0 && nd->right < t->n_nodes)
+            fprintf(fp, "  n%d -> n%d [label=\"no\"];\n", i, nd->right);
+    }
+    fprintf(fp, "}\n");
+    return fclose(fp) == 0 ? 0 : -1;
 }
 
 void forest_free(Forest *f) {

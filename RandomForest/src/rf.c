@@ -624,7 +624,7 @@ void dataset_split_holdout(const Dataset *full, Dataset *train, Dataset *test,
 /* ---------- Tree helpers ---------------------------------------------------- */
 
 static int tree_add_node(Tree *t) {
-    if (t->n_nodes >= t->cap_nodes) {
+    if (t->n_nodes >= t->cap_nodes) { // se a qnt de nos atual e maior que a capacidade, dobra a capacidade
         int cap = t->cap_nodes ? t->cap_nodes * 2 : 16;
         Node *nn = realloc(t->nodes, (size_t)cap * sizeof(Node));
         if (!nn)
@@ -632,7 +632,7 @@ static int tree_add_node(Tree *t) {
         t->nodes = nn;
         t->cap_nodes = cap;
     }
-    int id = t->n_nodes++;
+    int id = t->n_nodes++; // adiciona um novo no e retorna o id do novo no
     t->nodes[id].feature = -1;
     t->nodes[id].threshold = 0.0;
     t->nodes[id].left = -1;
@@ -643,21 +643,25 @@ static int tree_add_node(Tree *t) {
 
 static int majority_class(const int *counts, int n_classes) {
     int best = 0;
-    for (int k = 1; k < n_classes; k++)
+    for (int k = 1; k < n_classes; k++) // encontra a classe com a maior quantidade
         if (counts[k] > counts[best])
             best = k;
-    return best;
+    return best; // arvore classifica como a classe com a maior quantidade
 }
 
+// gini = 1 - somatorio((qtd_classe/qtd_total)^2)
 static double gini_from_counts(const int *c, int n_classes, int n) {
     if (n <= 0)
         return 0.0;
-    double g = 1.0;
+
+    // c = histograma
+
+    double somatorio = 0.0;
     for (int k = 0; k < n_classes; k++) {
         double p = (double)c[k] / (double)n;
-        g -= p * p;
+        somatorio += p * p;
     }
-    return g;
+    return 1.0 - somatorio;
 }
 
 typedef struct {
@@ -675,8 +679,10 @@ static int cmp_pair(const void *a, const void *b) {
     return 0;
 }
 
+// decide quais as features que serao usadas para o split
+// mtry = max(1, int(np.sqrt(n_features)))
+// feats = np.random.choice(n_features, size=mtry, replace=False)
 static int pick_mtry_features(int *feats, int n_features, int mtry, uint32_t *rng) {
-    /* Partial Fisher-Yates: first mtry of a shuffled index list */
     int *idx = malloc((size_t)n_features * sizeof(int));
     if (!idx)
         return -1;
@@ -700,18 +706,6 @@ typedef struct {
     int ok;
 } BestSplit;
 
-/*
- * OPENMP (usually not worth it): the loop over mtry features below is a
- * candidate for nested parallelism while searching a split:
- *
- *   #pragma omp parallel for schedule(static) if(n >= 256)
- *
- * Each feature needs its own Pair buffer and running class counts (private).
- * Do NOT nest this under tree-level parallel for unless you set
- * omp_set_nested(0) or use omp_set_max_active_levels(1) — tree-level
- * parallelism already saturates cores. Parallel qsort of one feature is
- * almost never useful at node scale.
- */
 static BestSplit find_best_split(const Dataset *ds, const int *idx, int n,
                                  int mtry, uint32_t *rng, int n_classes) {
     BestSplit best = {-1, 0.0, 1e300, 0};
@@ -721,8 +715,8 @@ static BestSplit find_best_split(const Dataset *ds, const int *idx, int n,
         return best;
     }
 
-    Pair *pairs = malloc((size_t)n * sizeof(Pair));
-    int *left_c = calloc((size_t)n_classes, sizeof(int));
+    Pair *pairs = malloc((size_t)n * sizeof(Pair)); // pares (X, y)
+    int *left_c = calloc((size_t)n_classes, sizeof(int)); 
     int *right_c = calloc((size_t)n_classes, sizeof(int));
     if (!pairs || !left_c || !right_c) {
         free(feats);
@@ -732,39 +726,39 @@ static BestSplit find_best_split(const Dataset *ds, const int *idx, int n,
         return best;
     }
 
-    /* OPENMP-SPLIT: for (int fi = 0; fi < mtry; fi++)  — nested, high overhead */
-    /* #pragma omp parallel for schedule(static)  -- example only, keep sequential */
     for (int fi = 0; fi < mtry; fi++) {
         int f = feats[fi];
         for (int i = 0; i < n; i++) {
             int row = idx[i];
+            // coloca o valor da feature f na posicao idx[i] no pairs
             pairs[i].v = ds->x[(size_t)row * (size_t)ds->n_features + (size_t)f];
+            // coloca a classe da posicao idx[i] no pairs
             pairs[i].y = ds->y[row];
         }
-        qsort(pairs, (size_t)n, sizeof(Pair), cmp_pair);
+        qsort(pairs, (size_t)n, sizeof(Pair), cmp_pair); // ordena os pares pelo valor da feature
 
-        memset(left_c, 0, (size_t)n_classes * sizeof(int));
-        memset(right_c, 0, (size_t)n_classes * sizeof(int));
+        memset(left_c, 0, (size_t)n_classes * sizeof(int)); // inicializa o histograma esq do tamanho n_classes cheio de 0
+        memset(right_c, 0, (size_t)n_classes * sizeof(int)); // inicializa o histograma dir do tamanho n_classes cheio de 0
         for (int i = 0; i < n; i++)
-            right_c[pairs[i].y]++;
+            right_c[pairs[i].y]++; // preenche o histograma dir contando a quantidade de cada classe que chegou no lado direito
 
         int n_left = 0;
         int n_right = n;
         for (int i = 0; i < n - 1; i++) {
-            int cls = pairs[i].y;
+            int cls = pairs[i].y; // classe do par i
             left_c[cls]++;
             right_c[cls]--;
             n_left++;
             n_right--;
             if (pairs[i].v == pairs[i + 1].v)
                 continue;
-            double gl = gini_from_counts(left_c, n_classes, n_left);
-            double gr = gini_from_counts(right_c, n_classes, n_right);
-            double g = (n_left * gl + n_right * gr) / (double)n;
-            if (g < best.gini) {
+            double gl = gini_from_counts(left_c, n_classes, n_left); // gini do lado esquerdo
+            double gr = gini_from_counts(right_c, n_classes, n_right); // gini do lado direito
+            double g = (n_left * gl + n_right * gr) / (double)n; 
+            if (g < best.gini) { // buscamos o menor gini 
                 best.gini = g;
                 best.feature = f;
-                best.threshold = 0.5 * (pairs[i].v + pairs[i + 1].v);
+                best.threshold = 0.5 * (pairs[i].v + pairs[i + 1].v); // threshold = media dos valores dos pares i e i+1
                 best.ok = 1;
             }
         }
@@ -785,19 +779,23 @@ static int grow_node(Tree *t, const Dataset *ds, int *idx, int n, int depth,
         return -1;
 
     int n_classes = t->n_classes;
-    int *counts = scratch;
-    memset(counts, 0, (size_t)n_classes * sizeof(int));
+    int *counts = scratch; // histograma 
+    memset(counts, 0, (size_t)n_classes * sizeof(int)); // inicializa o histograma do tamanho n_classes cheio de 0
     for (int i = 0; i < n; i++)
-        counts[ds->y[idx[i]]]++;
-    t->nodes[id].pred_class = majority_class(counts, n_classes);
+        counts[ds->y[idx[i]]]++; // preenche o histograma contando a quantidade de cada classe que chegou no node
+    t->nodes[id].pred_class = majority_class(counts, n_classes); 
+    // é colocado um pred_class porque caso o no se consolide como folha, ele precisa de uma classe para ser a classe predita,
+    // se houver split, o pred_class fica inutil aqui
 
+    // verifica se o node é puro, se é puro, não precisa de split, se não é puro, precisa de split
     int pure = 0;
     for (int k = 0; k < n_classes; k++) {
-        if (counts[k] == n) {
+        if (counts[k] == n) { // se todos os elementos da classe k estao em uma posicao so do histograma, o node é puro
             pure = 1;
             break;
         }
     }
+    // condicao de parada 
     if (pure || n < min_samples_split || depth >= max_depth)
         return id;
 
@@ -807,14 +805,17 @@ static int grow_node(Tree *t, const Dataset *ds, int *idx, int n, int depth,
 
     int n_left = 0;
     for (int i = 0; i < n; i++) {
+        // v = X[idx[i], sp.feature]
         double v = ds->x[(size_t)idx[i] * (size_t)ds->n_features + (size_t)sp.feature];
+        // verifica se o valor da feature e menor ou igal o threshold, se for, o elemento vai para o lado esquerdo
         if (v <= sp.threshold)
-            n_left++;
+            n_left++; // conta quantos elementos vao pra esquerda
     }
-    int n_right = n - n_left;
-    if (n_left == 0 || n_right == 0)
+    int n_right = n - n_left; // conta quantos vao pra direita
+    if (n_left == 0 || n_right == 0) // se nao houve split, o node é folha
         return id;
 
+    // vetores para os indices de cada lado do split
     int *left_idx = malloc((size_t)n_left * sizeof(int));
     int *right_idx = malloc((size_t)n_right * sizeof(int));
     if (!left_idx || !right_idx) {
@@ -822,21 +823,24 @@ static int grow_node(Tree *t, const Dataset *ds, int *idx, int n, int depth,
         free(right_idx);
         return id;
     }
-    int li = 0, ri = 0;
+    int li = 0, ri = 0; 
     for (int i = 0; i < n; i++) {
+        // v = X[idx[i], sp.feature]
         double v = ds->x[(size_t)idx[i] * (size_t)ds->n_features + (size_t)sp.feature];
+        // coloca efetivamente o elemento no lado 
         if (v <= sp.threshold)
             left_idx[li++] = idx[i];
         else
             right_idx[ri++] = idx[i];
     }
 
-    /* Grow children first: tree_add_node may realloc t->nodes, so do not
-     * take the address of t->nodes[id].left before the recursive calls. */
+    // cresce a arvore recursivamente para esq e dir
     int left = grow_node(t, ds, left_idx, n_left, depth + 1,
-                         max_depth, min_samples_split, mtry, rng, scratch);
+                         max_depth, min_samples_split, mtry, rng, scratch); 
     int right = grow_node(t, ds, right_idx, n_right, depth + 1,
                           max_depth, min_samples_split, mtry, rng, scratch);
+
+    // atualiza o novo no criado com as informacoes do split
     t->nodes[id].feature = sp.feature;
     t->nodes[id].threshold = sp.threshold;
     t->nodes[id].left = left;
@@ -902,7 +906,7 @@ int forest_train(Forest *f, const Dataset *ds, const ForestParams *p) {
     f->max_depth = p->max_depth > 0 ? p->max_depth : 16;
     f->min_samples_split = p->min_samples_split > 1 ? p->min_samples_split : 2;
     if (p->mtry > 0)
-        f->mtry = p->mtry;
+        f->mtry = p->mtry; // mtry: numero de features que serao usadas para o split
     else {
         int m = (int)sqrt((double)ds->n_features);
         f->mtry = m < 1 ? 1 : m;
@@ -914,19 +918,8 @@ int forest_train(Forest *f, const Dataset *ds, const ForestParams *p) {
     if (!f->trees)
         return -1;
 
-    /*
-     * OPENMP (best site): trees are independent — bootstrap, RNG, and node
-     * arena are all per-tree. Uncomment and compile with -fopenmp:
-     *
-     *   #pragma omp parallel for schedule(dynamic)
-     *
-     * Need: default(none) shared(f, ds) or allocate boot buffers inside the
-     * loop (already true). RNG: use seed + (t+1), never libc rand().
-     * Uneven tree sizes => schedule(dynamic). Do not share Tree.nodes.
-     */
-    /* #pragma omp parallel for schedule(dynamic) */
     for (int t = 0; t < f->n_trees; t++) {
-        uint32_t seed = p->seed + (uint32_t)t * 0x9E3779B9u + 1u;
+        uint32_t seed = p->seed + (uint32_t)t * 0x9E3779B9u + 1u; // cada arvore tem sua propria seed
         if (tree_grow(&f->trees[t], ds, f->max_depth, f->min_samples_split,
                       f->mtry, seed) != 0) {
             forest_free(f);
@@ -936,21 +929,12 @@ int forest_train(Forest *f, const Dataset *ds, const ForestParams *p) {
     return 0;
 }
 
+// cada arvore classifica a classe e o resultado e votado para a classe mais votada
 int forest_predict_one(const Forest *f, const double *x) {
     int *votes = calloc((size_t)f->n_classes, sizeof(int));
     if (!votes)
         return 0;
 
-    /*
-     * OPENMP (weaker): vote over trees for a *single* row. Prefer parallelizing
-     * the outer sample loop in forest_predict instead. Example:
-     *
-     *   #pragma omp parallel for reduction(+:votes[:f->n_classes])
-     *
-     * (OpenMP 4.5 array reduction.) Or a thread-local vote buffer then atomic
-     * add. Only useful if n_trees is huge and n_rows == 1.
-     */
-    /* #pragma omp parallel for reduction(+:votes[:f->n_classes]) */
     for (int t = 0; t < f->n_trees; t++) {
         int c = tree_predict_one(&f->trees[t], x, f->n_features);
         if (c >= 0 && c < f->n_classes)
@@ -962,15 +946,6 @@ int forest_predict_one(const Forest *f, const double *x) {
 }
 
 void forest_predict(const Forest *f, const Dataset *ds, int *out) {
-    /*
-     * OPENMP (strong): each row is independent once trees are built (read-only).
-     * No cross-row reduction.
-     *
-     *   #pragma omp parallel for schedule(static)
-     *
-     * Same pattern for OOB / accuracy loops.
-     */
-    /* #pragma omp parallel for schedule(static) */
     for (int i = 0; i < ds->n_samples; i++)
         out[i] = forest_predict_one(f, ds->x + (size_t)i * (size_t)ds->n_features);
 }
@@ -982,13 +957,44 @@ double forest_accuracy(const Forest *f, const Dataset *ds) {
     if (!pred)
         return 0.0;
     forest_predict(f, ds, pred);
-    /* OPENMP-OOB/ACC: for (i) pred vs y — same as forest_predict, row-parallel */
+
     int ok = 0;
     for (int i = 0; i < ds->n_samples; i++)
         if (pred[i] == ds->y[i])
             ok++;
     free(pred);
     return (double)ok / (double)ds->n_samples;
+}
+
+int forest_write_dot(const Forest *f, int tree_index, const char *path) {
+    if (!f || !f->trees || !path || tree_index < 0 || tree_index >= f->n_trees)
+        return -1;
+    const Tree *t = &f->trees[tree_index];
+    FILE *fp = fopen(path, "w");
+    if (!fp)
+        return -1;
+
+    fprintf(fp, "digraph tree_%d {\n", tree_index);
+    fprintf(fp, "  rankdir=TB;\n");
+    fprintf(fp, "  node [fontname=Helvetica];\n");
+    for (int i = 0; i < t->n_nodes; i++) {
+        const Node *nd = &t->nodes[i];
+        if (nd->feature < 0) {
+            fprintf(fp,
+                    "  n%d [label=\"class %d\", shape=box, style=filled, "
+                    "fillcolor=\"#d5e8d4\"];\n",
+                    i, nd->pred_class);
+            continue;
+        }
+        fprintf(fp, "  n%d [label=\"x[%d] <= %.4g\"];\n", i, nd->feature,
+                nd->threshold);
+        if (nd->left >= 0 && nd->left < t->n_nodes)
+            fprintf(fp, "  n%d -> n%d [label=\"yes\"];\n", i, nd->left);
+        if (nd->right >= 0 && nd->right < t->n_nodes)
+            fprintf(fp, "  n%d -> n%d [label=\"no\"];\n", i, nd->right);
+    }
+    fprintf(fp, "}\n");
+    return fclose(fp) == 0 ? 0 : -1;
 }
 
 void forest_free(Forest *f) {
