@@ -1,0 +1,35 @@
+# Object files
+*.o
+*.obj
+
+# Executables
+rf
+rf.exe
+*.exe
+*.out
+
+# Libraries
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+
+# Python e Jupyter
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+
+# IDEs e editores
+.vscode/
+.idea/
+*.swp
+*~
+
+# Arquivos do sistema operacional
+.DS_Store
+Thumbs.db
+

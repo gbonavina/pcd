@@ -1,5 +1,3 @@
-#define _POSIX_C_SOURCE 200809L
-
 #include "rf.h"
 
 #include <stdio.h>
@@ -7,13 +5,15 @@
 #include <string.h>
 #include <time.h>
 
-static double wall_now(void) {
+static double wall_now(void)
+{
     struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
+    timespec_get(&ts, TIME_UTC);
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 }
 
-static void usage(const char *argv0) {
+static void usage(const char *argv0)
+{
     fprintf(stderr,
             "Usage: %s [--data PATH] [--target COL] [--trees N] [--max-depth D] "
             "[--min-samples M] [--mtry K] [--test-frac F] [--seed S]\n"
@@ -21,7 +21,8 @@ static void usage(const char *argv0) {
             argv0);
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
     const char *path = "data/iris.csv";
     const char *target = NULL;
     ForestParams p = {
@@ -33,7 +34,8 @@ int main(int argc, char **argv) {
     };
     double test_frac = 0.2;
 
-    for (int i = 1; i < argc; i++) {
+    for (int i = 1; i < argc; i++)
+    {
         if (!strcmp(argv[i], "--data") && i + 1 < argc)
             path = argv[++i];
         else if (!strcmp(argv[i], "--target") && i + 1 < argc)
@@ -50,17 +52,21 @@ int main(int argc, char **argv) {
             test_frac = atof(argv[++i]);
         else if (!strcmp(argv[i], "--seed") && i + 1 < argc)
             p.seed = (uint32_t)strtoul(argv[++i], NULL, 10);
-        else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
+        else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help"))
+        {
             usage(argv[0]);
             return 0;
-        } else {
+        }
+        else
+        {
             usage(argv[0]);
             return 1;
         }
     }
 
     Dataset full = {0};
-    if (dataset_load_csv(path, &full, target) != 0) {
+    if (dataset_load_csv(path, &full, target) != 0)
+    {
         fprintf(stderr, "failed to load CSV: %s\n", path);
         return 1;
     }
@@ -70,7 +76,8 @@ int main(int argc, char **argv) {
 
     Forest forest = {0};
     double t0 = wall_now();
-    if (forest_train(&forest, &train, &p) != 0) {
+    if (forest_train(&forest, &train, &p) != 0)
+    {
         fprintf(stderr, "training failed\n");
         dataset_free(&full);
         dataset_free(&train);
