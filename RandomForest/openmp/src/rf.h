@@ -56,6 +56,8 @@ int forest_predict_one(const Forest *f, const double *x);
 void forest_predict(const Forest *f, const Dataset *ds, int *out);
 double forest_accuracy(const Forest *f, const Dataset *ds);
 void forest_free(Forest *f);
+/* Graphviz DOT of trees[tree_index]. Returns 0 on success. */
+int forest_write_dot(const Forest *f, int tree_index, const char *path);
 
 void dataset_split_holdout(const Dataset *full, Dataset *train, Dataset *test,
                            double test_frac, uint32_t seed);

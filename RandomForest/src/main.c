@@ -16,8 +16,11 @@ static double wall_now(void) {
 static void usage(const char *argv0) {
     fprintf(stderr,
             "Usage: %s [--data PATH] [--target COL] [--trees N] [--max-depth D] "
-            "[--min-samples M] [--mtry K] [--test-frac F] [--seed S]\n"
-            "  --target  column name or 0-based index (default: last column)\n",
+            "[--min-samples M] [--mtry K] [--test-frac F] [--seed S] "
+            "[--dot FILE] [--dot-tree N]\n"
+            "  --target    column name or 0-based index (default: last column)\n"
+            "  --dot FILE  write Graphviz DOT of one tree (default: tree 0)\n"
+            "  --dot-tree  which tree to export (0-based)\n",
             argv0);
 }
 
@@ -32,6 +35,8 @@ int main(int argc, char **argv) {
         .seed = 42,
     };
     double test_frac = 0.2;
+    const char *dot_path = NULL;
+    int dot_tree = 0;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--data") && i + 1 < argc)
@@ -50,6 +55,10 @@ int main(int argc, char **argv) {
             test_frac = atof(argv[++i]);
         else if (!strcmp(argv[i], "--seed") && i + 1 < argc)
             p.seed = (uint32_t)strtoul(argv[++i], NULL, 10);
+        else if (!strcmp(argv[i], "--dot") && i + 1 < argc)
+            dot_path = argv[++i];
+        else if (!strcmp(argv[i], "--dot-tree") && i + 1 < argc)
+            dot_tree = atoi(argv[++i]);
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             usage(argv[0]);
             return 0;
@@ -94,6 +103,19 @@ int main(int argc, char **argv) {
     printf("test_accuracy=%.4f\n", acc_te);
     printf("train_wall_s=%.6f predict_wall_s=%.6f wall_s=%.6f\n",
            train_s, predict_s, train_s + predict_s);
+
+    if (dot_path) {
+        if (forest_write_dot(&forest, dot_tree, dot_path) != 0) {
+            fprintf(stderr, "failed to write DOT: %s (tree %d)\n", dot_path, dot_tree);
+            forest_free(&forest);
+            dataset_free(&full);
+            dataset_free(&train);
+            dataset_free(&test);
+            return 1;
+        }
+        printf("wrote_dot=%s tree=%d nodes=%d\n", dot_path, dot_tree,
+               forest.trees[dot_tree].n_nodes);
+    }
 
     forest_free(&forest);
     dataset_free(&full);

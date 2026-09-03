@@ -1,0 +1,21 @@
+digraph tree_0 {
+  rankdir=TB;
+  node [fontname=Helvetica];
+  n0 [label="x[2] <= 2.35"];
+  n0 -> n1 [label="yes"];
+  n0 -> n2 [label="no"];
+  n1 [label="class 0", shape=box, style=filled, fillcolor="#d5e8d4"];
+  n2 [label="x[3] <= 1.55"];
+  n2 -> n3 [label="yes"];
+  n2 -> n8 [label="no"];
+  n3 [label="x[1] <= 2.65"];
+  n3 -> n4 [label="yes"];
+  n3 -> n7 [label="no"];
+  n4 [label="x[2] <= 5.05"];
+  n4 -> n5 [label="yes"];
+  n4 -> n6 [label="no"];
+  n5 [label="class 1", shape=box, style=filled, fillcolor="#d5e8d4"];
+  n6 [label="class 2", shape=box, style=filled, fillcolor="#d5e8d4"];
+  n7 [label="class 1", shape=box, style=filled, fillcolor="#d5e8d4"];
+  n8 [label="class 2", shape=box, style=filled, fillcolor="#d5e8d4"];
+}
