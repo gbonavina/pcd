@@ -111,8 +111,10 @@ int main(int argc, char **argv)
     printf("train_wall_s=%.6f predict_wall_s=%.6f wall_s=%.6f\n",
            train_s, predict_s, train_s + predict_s);
 
-    if (dot_path) {
-        if (forest_write_dot(&forest, dot_tree, dot_path) != 0) {
+    if (dot_path)
+    {
+        if (forest_write_dot(&forest, dot_tree, dot_path) != 0)
+        {
             fprintf(stderr, "failed to write DOT: %s (tree %d)\n", dot_path, dot_tree);
             forest_free(&forest);
             dataset_free(&full);
