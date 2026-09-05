@@ -42,6 +42,7 @@ int main(int argc, char **argv)
     double test_frac = 0.2;
     const char *dot_path = NULL;
     int dot_tree = 0;
+    int cpu_baseline = 1;
 
     for (int i = 1; i < argc; i++)
     {
@@ -65,6 +66,8 @@ int main(int argc, char **argv)
             dot_path = argv[++i];
         else if (!strcmp(argv[i], "--dot-tree") && i + 1 < argc)
             dot_tree = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--no-cpu-baseline"))
+            cpu_baseline = 0;
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help"))
         {
             usage(argv[0]);
@@ -87,20 +90,51 @@ int main(int argc, char **argv)
     Dataset train = {0}, test = {0};
     dataset_split_holdout(&full, &train, &test, test_frac, p.seed);
 
+    int has_gpu = cuda_device_available();
+    const char *gpu_name = has_gpu ? cuda_device_name() : "none";
+
     Forest forest = {0};
-    double t0 = wall_now();
-    if (forest_train(&forest, &train, &p) != 0)
+    double train_gpu_s = 0.0;
+    double h2d_tr_ms = 0.0, kern_tr_ms = 0.0, d2h_tr_ms = 0.0;
+    int train_gpu_ok = 0;
+
+    if (has_gpu)
     {
-        fprintf(stderr, "training failed\n");
-        dataset_free(&full);
-        dataset_free(&train);
-        dataset_free(&test);
-        return 1;
+        double t0_tr = wall_now();
+        train_gpu_ok = (forest_train_gpu(&forest, &train, &p, &h2d_tr_ms, &kern_tr_ms, &d2h_tr_ms) == 0);
+        train_gpu_s = wall_now() - t0_tr;
     }
-    double train_s = wall_now() - t0;
+
+    /* CPU training baseline for comparison */
+    double train_cpu_s = 0.0;
+    if (!has_gpu || !train_gpu_ok)
+    {
+        double t0 = wall_now();
+        if (forest_train(&forest, &train, &p) != 0)
+        {
+            fprintf(stderr, "training failed\n");
+            dataset_free(&full);
+            dataset_free(&train);
+            dataset_free(&test);
+            return 1;
+        }
+        train_cpu_s = wall_now() - t0;
+    }
+    else if (cpu_baseline)
+    {
+        Forest forest_cpu = {0};
+        double t0 = wall_now();
+        if (forest_train(&forest_cpu, &train, &p) == 0)
+        {
+            train_cpu_s = wall_now() - t0;
+            forest_free(&forest_cpu);
+        }
+    }
+
+    double active_train_s = (has_gpu && train_gpu_ok) ? train_gpu_s : train_cpu_s;
 
     /* CPU evaluation for baseline comparison and verification */
-    t0 = wall_now();
+    double t0 = wall_now();
     int *cpu_pred_tr = (int *)malloc((size_t)train.n_samples * sizeof(int));
     int *cpu_pred_te = (int *)malloc((size_t)test.n_samples * sizeof(int));
     forest_predict(&forest, &train, cpu_pred_tr);
@@ -118,13 +152,10 @@ int main(int argc, char **argv)
     double acc_te_cpu = (test.n_samples > 0) ? (double)cpu_te_ok / test.n_samples : 0.0;
 
     /* GPU evaluation */
-    int has_gpu = cuda_device_available();
-    const char *gpu_name = has_gpu ? cuda_device_name() : "none";
-
     int *gpu_pred_tr = (int *)malloc((size_t)train.n_samples * sizeof(int));
     int *gpu_pred_te = (int *)malloc((size_t)test.n_samples * sizeof(int));
-    double h2d_tr = 0.0, kern_tr = 0.0, d2h_tr = 0.0;
     double h2d_te = 0.0, kern_te = 0.0, d2h_te = 0.0;
+    double h2d_tr_pred = 0.0, kern_tr_pred = 0.0, d2h_tr_pred = 0.0;
     double predict_gpu_s = 0.0;
     double acc_tr_gpu = 0.0, acc_te_gpu = 0.0;
     int mismatches_te = 0;
@@ -132,7 +163,7 @@ int main(int argc, char **argv)
     if (has_gpu)
     {
         double t0_gpu = wall_now();
-        int ok1 = forest_predict_gpu(&forest, &train, gpu_pred_tr, &h2d_tr, &kern_tr, &d2h_tr);
+        int ok1 = forest_predict_gpu(&forest, &train, gpu_pred_tr, &h2d_tr_pred, &kern_tr_pred, &d2h_tr_pred);
         int ok2 = forest_predict_gpu(&forest, &test, gpu_pred_te, &h2d_te, &kern_te, &d2h_te);
         predict_gpu_s = wall_now() - t0_gpu;
 
@@ -180,12 +211,21 @@ int main(int argc, char **argv)
     printf("train_accuracy=%.4f\n", active_acc_tr);
     printf("test_accuracy=%.4f\n", active_acc_te);
     printf("train_wall_s=%.6f predict_wall_s=%.6f wall_s=%.6f\n",
-           train_s, active_predict_s, train_s + active_predict_s);
+           active_train_s, active_predict_s, active_train_s + active_predict_s);
+
+    if (has_gpu && train_gpu_ok)
+    {
+        double speedup_tr = (train_gpu_s > 0.0 && train_cpu_s > 0.0) ? (train_cpu_s / train_gpu_s) : 0.0;
+        printf("train_cpu_s=%.6f train_gpu_s=%.6f speedup_train=%.2fx\n",
+               train_cpu_s, train_gpu_s, speedup_tr);
+        printf("gpu_train_breakdown: h2d_ms=%.3f kernel_ms=%.3f d2h_ms=%.3f total_train_ms=%.3f\n",
+               h2d_tr_ms, kern_tr_ms, d2h_tr_ms, h2d_tr_ms + kern_tr_ms + d2h_tr_ms);
+    }
 
     if (has_gpu)
     {
         double speedup = (predict_gpu_s > 0.0) ? (predict_cpu_s / predict_gpu_s) : 0.0;
-        double speedup_kern = (kern_te > 0.0) ? ((predict_cpu_s * 1000.0) / (kern_tr + kern_te)) : 0.0;
+        double speedup_kern = (kern_te > 0.0) ? ((predict_cpu_s * 1000.0) / (kern_tr_pred + kern_te)) : 0.0;
         printf("predict_cpu_s=%.6f predict_gpu_s=%.6f speedup_predict=%.2fx (kernel_only=%.2fx)\n",
                predict_cpu_s, predict_gpu_s, speedup, speedup_kern);
         printf("gpu_test_breakdown: h2d_ms=%.3f kernel_ms=%.3f d2h_ms=%.3f total_gpu_ms=%.3f\n",

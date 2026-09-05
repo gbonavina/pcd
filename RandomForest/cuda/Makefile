@@ -1,7 +1,6 @@
 NVCC ?= nvcc
 CCBIN ?= "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Tools\MSVC\14.51.36231\bin\Hostx64\x64"
-NVCCFLAGS = -O3 -std=c++14 -I src
-
+NVCCFLAGS = -O3 -std=c++17 -Xcompiler /Zc:preprocessor -I src
 SRC = src/rf_host.c src/rf_gpu.cu src/main.cu
 HDR = src/rf_cuda.h
 
