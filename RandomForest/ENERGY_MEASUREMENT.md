@@ -221,19 +221,28 @@ Para garantir comparabilidade rigorosa entre Sequencial, OpenMP e CUDA, recomend
 ## 5. Exemplos de Execução Prática
 
 ### Teste 1: Comparação no Dataset de Médio Porte (`letter-recognition.data`)
+Pode ser executado diretamente pelo Makefile ou via script individual:
 ```bash
+# Execução automatizada comparando Sequencial, OpenMP e CUDA:
+make energy-test1
+
+# Ou invocando o script individualmente:
 # 1. Sequencial
 python python/measure_energy.py ./rf.exe --data data/letter-recognition.data --target 0 --trees 100 --max-depth 8 --mtry 4
 
 # 2. OpenMP (16 threads)
-python python/measure_energy.py ./openmp/rf.exe --data ../data/letter-recognition.data --target 0 --trees 100 --max-depth 8 --mtry 4
+python python/measure_energy.py ./openmp/rf.exe --data data/letter-recognition.data --target 0 --trees 100 --max-depth 8 --mtry 4
 
 # 3. CUDA (GPU)
-python python/measure_energy.py ./cuda/rf_cuda.exe --data ../data/letter-recognition.data --target 0 --trees 100 --max-depth 8 --mtry 4
+python python/measure_energy.py ./cuda/rf_cuda.exe --data data/letter-recognition.data --target 0 --trees 100 --max-depth 8 --mtry 4 --no-cpu-baseline
 ```
 
 ### Teste 2: Cenário de Alta Demanda (`covtype.csv`, max_depth = 30)
 ```bash
+# Execução automatizada via Makefile:
+make energy-test2
+
+# Ou invocando os comandos individuais:
 # 1. OpenMP
 python python/measure_energy.py ./openmp/rf.exe --data ../data/covtype.csv --trees 50 --max-depth 30 --mtry 18 --seed 42
 

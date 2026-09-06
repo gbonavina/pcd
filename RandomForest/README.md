@@ -13,8 +13,9 @@ Implementação do algoritmo de aprendizado de máquina Random Forest (árvores 
 - `openmp/`: Versão paralela para CPU multi-core com diretivas OpenMP (`openmp/src/main.c`, `openmp/src/rf.c`).
 - `cuda/`: Versão acelerada em GPU com CUDA Runtime (`cuda/src/main.cu`, `cuda/src/rf_gpu.cu`, `cuda/src/rf_host.c`, `cuda/src/rf_cuda.h`).
 - `data/`: Conjuntos de dados tabulares utilizados para experimentação (`iris.csv`, `breast-cancer.csv`, `sales_data.csv`, `letter-recognition.data`, `covtype.csv`).
-- `python/`: Scripts automatizados para execução de benchmarks comparativos (`python/benchmark_comparison.py`).
-- `BENCHMARK_RESULTS.md`: Relatório técnico consolidado com métricas de tempo, speedup e acurácia.
+- `python/`: Scripts automatizados para execução de benchmarks comparativos (`python/benchmark_comparison.py`) e medição de energia (`python/measure_energy.py`).
+- `BENCHMARK_RESULTS.md`: Relatório técnico consolidado com métricas de tempo, speedup, acurácia, consumo energético e EDP.
+- `ENERGY_MEASUREMENT.md`: Metodologia, fundamentos teóricos e sensores de hardware para medição de energia (Intel RAPL e NVIDIA NVML).
 
 ---
 
@@ -80,6 +81,18 @@ make
 cd cuda
 make
 ./rf_cuda.exe --data ../data/letter-recognition.data --target 0 --trees 100 --max-depth 8 --mtry 4 --seed 42
+```
+
+### 4. Execução de Testes com Medição de Energia (CPU + GPU)
+```bash
+# Executa a suíte rápida de testes comparativos (Sequencial, OpenMP, CUDA) com medição de energia:
+make test
+
+# Executa o Teste 1 formal de consumo (letter-recognition):
+make energy-test1
+
+# Executa o monitor de energia diretamente sobre qualquer comando:
+python python/measure_energy.py ./rf.exe --data data/iris.csv
 ```
 
 ### Argumentos de Linha de Comando Suportados
