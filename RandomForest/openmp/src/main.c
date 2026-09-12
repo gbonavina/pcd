@@ -9,9 +9,13 @@
 
 static double wall_now(void)
 {
+    /*
     struct timespec ts;
     timespec_get(&ts, TIME_UTC);
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+    */
+    
+    return omp_get_wtime();
 }
 
 static void usage(const char *argv0)
