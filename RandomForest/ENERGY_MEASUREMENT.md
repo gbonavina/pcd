@@ -221,34 +221,46 @@ Para garantir comparabilidade rigorosa entre Sequencial, OpenMP e CUDA, recomend
 ## 5. Exemplos de Execução Prática
 
 ### Teste 1: Comparação no Dataset de Médio Porte (`letter-recognition.data`)
-Pode ser executado diretamente pelo Makefile ou via script individual:
+Parâmetros calibrados por grid search (`python python/tune_params.py`): 300 árvores,
+`max_depth = 30`, `min_samples = 2`, `mtry = 4` (acurácia de teste ≈ 96,2%).
 ```bash
 # Execução automatizada comparando Sequencial, OpenMP e CUDA:
 make energy-test1
 
 # Ou invocando o script individualmente:
 # 1. Sequencial
-python python/measure_energy.py ./rf.exe --data data/letter-recognition.data --target 0 --trees 100 --max-depth 8 --mtry 4
+python python/measure_energy.py ./rf.exe --data data/letter-recognition.data --target 0 --trees 300 --max-depth 30 --min-samples 2 --mtry 4 --seed 42
 
 # 2. OpenMP (16 threads)
-python python/measure_energy.py ./openmp/rf.exe --data data/letter-recognition.data --target 0 --trees 100 --max-depth 8 --mtry 4
+python python/measure_energy.py ./openmp/rf.exe --data data/letter-recognition.data --target 0 --trees 300 --max-depth 30 --min-samples 2 --mtry 4 --seed 42
 
 # 3. CUDA (GPU)
-python python/measure_energy.py ./cuda/rf_cuda.exe --data data/letter-recognition.data --target 0 --trees 100 --max-depth 8 --mtry 4 --no-cpu-baseline
+python python/measure_energy.py ./cuda/rf_cuda.exe --data data/letter-recognition.data --target 0 --trees 300 --max-depth 30 --min-samples 2 --mtry 4 --seed 42 --no-cpu-baseline
 ```
 
 ### Teste 2: Cenário de Alta Demanda (`covtype.csv`, max_depth = 30)
+581.012 amostras, 54 atributos, 7 classes; 50 árvores, `mtry = 18` (acurácia de teste ≈ 96,0%).
+Custo típico por execução: ~3,5 min no sequencial, ~45 s em OpenMP e ~8 min em CUDA.
 ```bash
 # Execução automatizada via Makefile:
 make energy-test2
 
 # Ou invocando os comandos individuais:
-# 1. OpenMP
-python python/measure_energy.py ./openmp/rf.exe --data ../data/covtype.csv --trees 50 --max-depth 30 --mtry 18 --seed 42
+# 1. Sequencial
+python python/measure_energy.py ./rf.exe --data data/covtype.csv --target Cover_Type --trees 50 --max-depth 30 --min-samples 2 --mtry 18 --seed 42
 
-# 2. CUDA
-python python/measure_energy.py ./cuda/rf_cuda.exe --data ../data/covtype.csv --trees 50 --max-depth 30 --mtry 18 --seed 42 --no-cpu-baseline
+# 2. OpenMP
+python python/measure_energy.py ./openmp/rf.exe --data data/covtype.csv --target Cover_Type --trees 50 --max-depth 30 --min-samples 2 --mtry 18 --seed 42
+
+# 3. CUDA
+python python/measure_energy.py ./cuda/rf_cuda.exe --data data/covtype.csv --target Cover_Type --trees 50 --max-depth 30 --min-samples 2 --mtry 18 --seed 42 --no-cpu-baseline
 ```
+
+> Os contadores RAPL e NVML têm resolução da ordem de dezenas de milissegundos e incluem a
+> energia de inicialização do processo (contexto CUDA, leitura do CSV). Para datasets cuja
+> execução dura menos de ~0,5 s (`iris`, `breast-cancer`), use `--repeats 3 --warmup` no
+> `benchmark_comparison.py`; medições isoladas nesse regime ficam no piso de resolução dos
+> sensores e produzem potências médias irreais.
 
 ---
 
