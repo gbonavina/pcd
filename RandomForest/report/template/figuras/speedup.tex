@@ -1,0 +1,75 @@
+\documentclass[tikz,border=1.5mm]{standalone}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepgfplotslibrary{groupplots}
+\usetikzlibrary{patterns}
+\begin{document}
+\begin{tikzpicture}
+\begin{groupplot}[
+  group style={
+    group size=3 by 1,
+    horizontal sep=1.05cm
+  },
+  width=4.85cm,
+  height=4.35cm,
+  scale only axis,
+  ybar,
+  /pgf/bar width=3.2pt,
+  symbolic x coords={Iris,WDBC,Letter,Cover},
+  xtick=data,
+  x tick label style={font=\scriptsize, rotate=32, anchor=east},
+  tick label style={font=\scriptsize},
+  ylabel style={font=\scriptsize},
+  title style={font=\scriptsize},
+  enlarge x limits=0.25,
+  axis line style={black},
+  tick style={black},
+  every axis plot/.append style={draw=black, line width=0.3pt}
+]
+\nextgroupplot[
+  title={(a) Treino},
+  ylabel={Speedup},
+  ymin=0, ymax=10,
+  ytick={0,2,4,6,8,10},
+  extra y ticks={1},
+  extra y tick style={grid=major},
+  major grid style={dashed, black!55},
+  ymajorgrids=false
+]
+\addplot[fill=black!28] coordinates {(Iris,2.69) (WDBC,6.00) (Letter,7.99) (Cover,6.20)};
+\addplot[fill=black!72] coordinates {(Iris,0.21) (WDBC,1.63) (Letter,0.58) (Cover,0.44)};
+
+\nextgroupplot[
+  title={(b) Predi\c{c}\~{a}o},
+  ymode=log,
+  log origin=0,
+  ymin=0.12, ymax=1100,
+  ytick={0.1,1,10,100,1000},
+  yticklabel style={font=\scriptsize, /pgf/number format/fixed},
+  extra y ticks={1},
+  extra y tick style={grid=major},
+  major grid style={dashed, black!55}
+]
+\addplot[fill=black!28] coordinates {(Iris,1.28) (WDBC,3.06) (Letter,13.27) (Cover,14.88)};
+\addplot[fill=black!72] coordinates {(Iris,0.20) (WDBC,1.03) (Letter,28.65) (Cover,14.99)};
+\addplot[pattern=north east lines, pattern color=black] coordinates {(Iris,1.02) (WDBC,6.55) (Letter,573.39) (Cover,144.58)};
+
+\nextgroupplot[
+  title={(c) EDP},
+  ymin=0, ymax=36,
+  ytick={0,10,20,30},
+  extra y ticks={1},
+  extra y tick style={grid=major},
+  major grid style={dashed, black!55}
+]
+\addplot[fill=black!28] coordinates {(Iris,3.21) (WDBC,6.59) (Letter,31.15) (Cover,23.29)};
+\addplot[fill=black!72] coordinates {(Iris,0.12) (WDBC,0.48) (Letter,0.18) (Cover,0.09)};
+\end{groupplot}
+\node[font=\scriptsize, anchor=north] at ([yshift=-1mm]current bounding box.south) {%
+  \begin{tabular}{@{}c@{\hspace{1.5pt}}l@{\hspace{8pt}}c@{\hspace{1.5pt}}l@{\hspace{8pt}}c@{\hspace{1.5pt}}l@{}}
+    \tikz\fill[black!28,draw=black] (0,0) rectangle (7pt,5.5pt); & OpenMP &
+    \tikz\fill[black!72,draw=black] (0,0) rectangle (7pt,5.5pt); & CUDA &
+    \tikz\draw[pattern=north east lines, pattern color=black] (0,0) rectangle (7pt,5.5pt); & kernel CUDA
+  \end{tabular}};
+\end{tikzpicture}
+\end{document}
