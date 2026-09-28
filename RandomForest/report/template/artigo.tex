@@ -35,7 +35,7 @@ paper evaluates sequential C11, multi-core OpenMP, and GPU CUDA implementations
 across four benchmarks (150 to 581{,}012 samples). OpenMP accelerates training by
 2.69$\times$ to 7.99$\times$, reducing the energy-delay product (EDP) by up to
 31.2$\times$. In contrast, end-to-end GPU inference reaches 28.65$\times$ speedup,
-producing zero prediction discrepancies relative to the CPU.
+producing zero prediction discrepancies relative to the CPU for the same forest.
 \end{abstract}
 
 \begin{resumo}
@@ -46,7 +46,8 @@ nó interno constitui o gargalo preponderante do treinamento. Este trabalho comp
 implementações em C11 sequencial, OpenMP em CPU e CUDA em GPU sobre quatro bases
 (150 a 581 mil instâncias). O OpenMP acelera o treino de 2{,}69$\times$ a
 7{,}99$\times$ e o produto energia-atraso (EDP) em até 31{,}2$\times$. Na inferência
-fim a fim, a GPU alcança ganho de 28{,}65$\times$, com perfeita equivalência à CPU.
+fim a fim, a GPU alcança ganho de 28{,}65$\times$, com correspondência preditiva
+exata à CPU para o mesmo modelo.
 \end{resumo}
 
 \section{Introdução}
@@ -107,7 +108,7 @@ descorrelacionadas~\cite{breiman:2001} por meio de dois mecanismos estocásticos
 (i)~\textit{bootstrap aggregating (bagging)}~\cite{breiman:1996}, onde cada árvore é
 induzida sobre $N$ amostras sorteadas com reposição (cerca de 63{,}2\% das instâncias
 originais); e (ii)~\textit{subespaço aleatório de atributos}, avaliando-se em cada nó
-apenas $m \le d$ atributos sem reposição ($m = \lfloor\sqrt{d}\rfloor$), o que evita a
+apenas $m \le d$ atributos sem reposição (tipicamente $m \approx \lfloor\sqrt{d}\rfloor$, passível de calibração), o que evita a
 predominância de atributos fortes.
 
 Na inferência, a amostra percorre cada árvore até uma folha, definindo a predição por
@@ -242,7 +243,8 @@ Cover    & 464{.}809 & 116{.}203 & 54 & 7 & 50 & 30 & 18 & 0{,}9599 & 0{,}9603 \
 \end{tabular}
 \end{table}
 
-O hardware compreende uma CPU x86\_64 com 16 threads lógicas e uma GPU NVIDIA
+O hardware compreende uma CPU Intel Core i5-12500H (12 núcleos físicos, sendo 4
+de desempenho e 8 de eficiência, 16 threads lógicas) e uma GPU dedicada NVIDIA
 GeForce RTX 3050 Laptop (4\,GB VRAM, arquitetura Ampere, capacidade de computação
 8.6), sob o Windows 11. O consumo de energia consolidado é dado por
 $E = E_{\mathrm{CPU}} + E_{\mathrm{GPU}}$, monitorando o processador via Intel RAPL
@@ -294,7 +296,9 @@ Cover  & 213{,}81 & 34{,}49 & 483{,}32 & 6{,}20 & 0{,}44 \\
 \begin{table}[!ht]
 \centering
 \caption{Tempo de predição sobre treino e teste (em milissegundos) e speedup sobre o
-sequencial. A coluna Kernel isola a execução da GPU no teste.}
+sequencial. A coluna Kernel isola a execução da GPU unicamente no teste;
+$S_{\mathrm{ker}}$ denota a razão direta $\text{Seq.}/\text{Kernel}$, equivalente a
+ganhos amostrais efetivos de cerca de 115$\times$ e 29$\times$ ao se isolar o teste.}
 \label{tab:pred}
 \footnotesize
 \setlength{\tabcolsep}{3pt}
@@ -325,10 +329,10 @@ constitui o indicador realista para sistemas em produção.
 \includegraphics[width=\textwidth]{figuras/speedup.pdf}
 \caption{Speedup obtido em relação à implementação sequencial de referência. A linha
 tracejada horizontal demarca a paridade unitária ($1\times$). Em (b), a escala é
-logarítmica com base em 1, e a série hachurada retrata o tempo de kernel da GPU no
-teste comparado ao tempo total sequencial. Em (a) e (c), essa subdivisão não se
-aplica. O registro de energia do conjunto Iris situa-se no piso de resolução dos
-sensores.}
+logarítmica (base 10) com barras ancoradas na paridade unitária ($1\times$), e a
+série hachurada retrata o tempo de kernel da GPU no teste comparado ao tempo total
+sequencial. Em (a) e (c), essa subdivisão não se aplica. O registro de energia do
+conjunto Iris situa-se no piso de resolução dos sensores.}
 \label{fig:speedup}
 \end{figure}
 
@@ -366,9 +370,12 @@ Em acurácia, sequencial e OpenMP coincidem perfeitamente. A GPU reproduz a CPU 
 Iris e WDBC, exibindo divergências residuais na terceira casa decimal em Letter e
 Covertype (0{,}9603 contra 0{,}9617 e 0{,}9603 contra 0{,}9599). O binário CUDA
 registrou zero divergências de predição entre GPU e CPU para a mesma floresta
-treinada em todas as 30, 114, 4{.}000 e 116{.}203 amostras de teste. A leve
-diferença decorre de empates de Gini desfeitos em ordem distinta pela busca linear
-sequencial e pela redução paralela do bloco na GPU.
+treinada em todas as 30, 114, 4{.}000 e 116{.}203 amostras de teste. Portanto, o
+treinamento na GPU gera árvores sutilmente distintas da CPU devido à ordem em que
+empates na impureza de Gini são desfeitos (varredura linear na CPU versus redução
+paralela bitônica no bloco CUDA). Em contrapartida, quando uma mesma floresta é
+avaliada em ambas as arquiteturas, a inferência exibe determinismo rigoroso e
+correspondência perfeita.
 
 \section{Discussão}
 \label{sec:disc}
@@ -418,7 +425,7 @@ de fluxo e sincronizações em memória global, sendo vantajosa apenas quando as
 amostras cabem na memória compartilhada rápida do bloco. Por outro lado, a
 inferência consolida-se como o domínio ótimo da GPU, onde o paralelismo massivo por
 amostra atinge ganhos fim a fim de até 28{,}65$\times$, com correspondência exata de
-predições com a CPU.
+predições com a CPU para um mesmo modelo induzido.
 
 Conclui-se que o arranjo ótimo para Random Forests consiste em um modelo heterogêneo
 cooperativo: induzir o comitê de árvores em CPU multi-core via OpenMP e descarregar a
