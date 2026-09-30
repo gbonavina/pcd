@@ -4,7 +4,7 @@ tune_params.py
 
 Busca em grade (grid search) dos hiperparametros do Random Forest usando a
 implementacao OpenMP (`openmp/rf.exe`) como referencia, por ser a mais rapida
-na CPU e numericamente equivalente a versao Sequencial.
+na CPU e numericamente equivalente as versoes Sequencial e CUDA.
 
 Para cada combinacao de (trees, max_depth, min_samples, mtry) o script executa
 o binario com varias sementes de particionamento (holdout) e agrega a acuracia
