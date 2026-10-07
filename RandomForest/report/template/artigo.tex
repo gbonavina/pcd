@@ -5,12 +5,11 @@
 \usepackage[brazilian]{babel}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
-\usepackage[ruled,linesnumbered,portuguese]{algorithm2e}
 
 \sloppy
 
 \title{Explorando o Paralelismo em Random Forests: Desempenho,\\
-Fidelidade Preditiva e Eficiência Energética em CPU e GPU}
+Fidelidade Preditiva e Eficiência Energética com OpenMP}
 
 % E-mails, na ordem dos autores. Substituir cada traço.
 \author{Gabriel L. Bonavina\inst{1}, Estevan T. Santos\inst{1},\\
@@ -30,24 +29,29 @@ Marcelo F. Ohno\inst{1}, Vinicius M. Goulart\inst{1}}
 \begin{abstract}
 Random Forest aggregates decision trees trained on bootstrap samples, evaluating
 random feature subsets at each split and determining predictions by majority vote.
-Sorting candidate splits at each internal node dominates training runtime. This
-paper evaluates sequential C11, multi-core OpenMP, and GPU CUDA implementations
-across four benchmarks (150 to 581{,}012 samples). OpenMP accelerates training by
-2.69$\times$ to 7.99$\times$, reducing the energy-delay product (EDP) by up to
-31.2$\times$. In contrast, end-to-end GPU inference reaches 28.65$\times$ speedup,
-producing zero prediction discrepancies relative to the CPU for the same forest.
+Sorting candidate splits at each internal node dominates training runtime, while
+the trees themselves are independent. This paper measures the strong scaling of
+one OpenMP implementation on four benchmarks (150 to 581{,}012 samples), from 1
+to 32 threads, on a 12-thread Intel Core i5-1235U. Training speedup reaches
+7.32$\times$ on Covertype and 7.19$\times$ on Letter Recognition, and the CPU
+package energy-delay product falls by up to 20.8$\times$. On the small sets the
+curve peaks earlier and declines once the thread count exceeds the available work.
+Test accuracy stays within 0.15 percentage points of the single-thread result.
 \end{abstract}
 
 \begin{resumo}
 O algoritmo Random Forest combina árvores de decisão induzidas sobre amostras
 bootstrap, avaliando subconjuntos aleatórios de atributos em cada partição e
-definindo a predição por voto majoritário. A ordenação dos cortes candidatos em cada
-nó interno constitui o gargalo preponderante do treinamento. Este trabalho compara
-implementações em C11 sequencial, OpenMP em CPU e CUDA em GPU sobre quatro bases
-(150 a 581 mil instâncias). O OpenMP acelera o treino de 2{,}69$\times$ a
-7{,}99$\times$ e o produto energia-atraso (EDP) em até 31{,}2$\times$. Na inferência
-fim a fim, a GPU alcança ganho de 28{,}65$\times$, com correspondência preditiva
-exata à CPU para o mesmo modelo.
+definindo a predição por voto majoritário. A ordenação dos cortes candidatos em
+cada nó interno domina o treinamento, enquanto as árvores crescem de forma
+independente. Este trabalho mede o escalonamento forte de uma implementação
+OpenMP em quatro bases (150 a 581 mil instâncias), de 1 a 32 threads, em um
+Intel Core i5-1235U de 12 threads. O treino acelera até 7{,}32$\times$ no
+Covertype e 7{,}19$\times$ no Letter Recognition, e o produto energia-atraso do
+pacote da CPU cai até 20{,}8$\times$. Nas bases pequenas a curva atinge o máximo
+antes e recua quando o número de threads excede o trabalho disponível. A
+acurácia de teste permanece a até 0{,}15 ponto percentual do resultado com uma
+thread.
 \end{resumo}
 
 \section{Introdução}
@@ -58,13 +62,13 @@ sensoriamento remoto. Entre os métodos baseados em comitês (\textit{ensembles}
 Random Forest~\cite{breiman:2001,breiman:1984} destaca-se pela alta acurácia preditiva
 e robustez ao sobreajuste por meio da agregação de múltiplas árvores de decisão.
 
-Contudo, a indução de florestas sobre bases volumosas impõe elevado custo computacional.
-O algoritmo exibe paralelismo híbrido: as árvores crescem de forma independente, mas
-a construção de cada nó exige ordenações sucessivas e caminhos de controle irregulares.
-Este artigo avalia três implementações do algoritmo (C11 sequencial, OpenMP~\cite{openmp:2018}
-e CUDA~\cite{nvidia:cuda}) quanto a tempo de execução, acurácia e Produto Energia-Atraso
-(EDP)~\cite{gonzalez:1996}, com medições diretas via Intel RAPL~\cite{david:2010} e
-NVIDIA NVML~\cite{nvidia:nvml} em bases de 150 a 581{.}012 instâncias.
+A indução de florestas sobre bases volumosas impõe elevado custo computacional. O
+algoritmo exibe paralelismo de dois grãos: as árvores crescem de forma independente,
+mas a construção de cada nó exige ordenações sucessivas. Este artigo avalia o
+escalonamento forte de uma implementação OpenMP~\cite{openmp:2018} quanto a tempo
+de execução, acurácia e Produto Energia-Atraso (EDP)~\cite{gonzalez:1996}, com a
+energia do pacote da CPU lida pelo Intel RAPL~\cite{david:2010}, em bases de 150 a
+581{.}012 instâncias e com 1, 2, 4, 8, 16 e 32 threads.
 
 \section{Random Forest}
 \label{sec:rf}
@@ -113,325 +117,305 @@ predominância de atributos fortes.
 
 Na inferência, a amostra percorre cada árvore até uma folha, definindo a predição por
 voto majoritário simples. Como as árvores não trocam dados durante o crescimento, o laço
-de indução é embaraçosamente paralelo. O determinismo e a reprodutibilidade estrita decorrem
-do gerador xorshift32 com semente $s_t = s + t \cdot \texttt{0x9E3779B9} + 1$, com
-$s = 42$ para a partição holdout (80\% treino e 20\% teste), assegurando que as três
-versões percorram os nós na mesma pré-ordem e consumam idêntica sequência pseudoaleatória.
+de indução é embaraçosamente paralelo. A reprodutibilidade decorre do gerador xorshift32
+com semente privativa $s_t = s + t \cdot \texttt{0x9E3779B9} + 1$ para a árvore $t$, com
+$s = 42$ também na partição holdout (80\% treino e 20\% teste).
 
-\subsection{Análise do gargalo computacional}
-
-O Algoritmo~\ref{alg:rf} formaliza o fluxo implementado. Três grandezas fundamentam
-a análise assintótica da complexidade: $N$ denota o número total de instâncias de
-treinamento (dimensão de cada réplica bootstrap com reposição); $S$ representa o
-subconjunto de amostras que chegam a determinado nó recursivo, sendo $|S|$ a sua
-cardinalidade local ($|S| = N$ no nó raiz e $|S| < N$ nos nós descendentes); e $D$
-é a profundidade máxima permitida (\textit{max depth}), delimitando o comprimento
-do caminho da raiz até qualquer folha.
-
-\begin{algorithm}[H]
-\footnotesize
-\SetAlgoLined
-\SetKwProg{Proc}{procedimento}{:}{}
-\SetKwFunction{FnFloresta}{Floresta}
-\SetKwFunction{FnCrescer}{Crescer}
-\SetKwFunction{FnPredizer}{Predizer}
-\Proc{\FnFloresta{$X, y, T, D, n_{\min}, m$}}{
-  \Para{$t \leftarrow 1$ até $T$}{
-    $B \leftarrow N$ índices com reposição\tcp*{amostragem bootstrap: $O(N)$}
-    raiz de $t \leftarrow$ \FnCrescer{$B, 0$}\;
-  }
-}
-\Proc{\FnCrescer{$S$, profundidade}}{
-  \Se{$S$ é puro \textbf{ou} $|S| < n_{\min}$ \textbf{ou} profundidade $= D$}{
-    \Retorna folha com a classe majoritária\;
-  }
-  sortear $m$ atributos sem reposição\;
-  \ParaCada{atributo $f$ sorteado}{
-    montar os pares (valor de $f$, classe) das linhas de $S$\;
-    ordenar os pares pelo valor\tcp*{gargalo: $O(|S|\log|S|)$}
-    varrer cortes entre valores vizinhos distintos\;
-    guardar o corte de menor Gini ponderado\;
-  }
-  partir $S$ em $E$ e $R$ pelo melhor corte\;
-  esquerdo $\leftarrow$ \FnCrescer{$E$, profundidade $+ 1$}\tcp*{subdivisão recursiva}
-  direito $\leftarrow$ \FnCrescer{$R$, profundidade $+ 1$}\;
-  \Retorna o nó interno\;
-}
-\Proc{\FnPredizer{$x$}}{
-  \ParaCada{árvore}{
-    descer até uma folha\tcp*{travessia $O(D)$ por árvore}
-    somar um voto da classe da folha\;
-  }
-  \Retorna a classe com mais votos\;
-}
-\caption{Fluxo de indução e predição do Random Forest para classificação. O gargalo computacional concentra-se na etapa de ordenação no interior de \textsc{Crescer}, reiterada para cada nó e atributo avaliado.}
-\label{alg:rf}
-\end{algorithm}
-
-A amostragem bootstrap possui custo $O(N)$ por árvore, fração desprezível do tempo
-total. O gargalo computacional reside na rotina \textsc{Crescer}: para cada um dos $m$
-atributos examinados no nó, as $|S|$ linhas locais são ordenadas em pares (valor,
-classe). Como a varredura subsequente de cortes é linear ($O(|S|)$), o custo dominante
-por nó é governado pelo termo $O(m\,|S|\log|S|)$.
-
-Os nós próximos à raiz concentram maior custo, pois $|S| \approx N$. Embora divisões
-sucessivas particionem os dados, a soma das instâncias em cada nível de profundidade
-mantém-se próxima de $N$. Limites $D$ elevados ($D = 30$, em Letter e Covertype)
-multiplicam as ordenações de grande porte. Em contrapartida, a inferência (\textsc{Predizer})
-restringe-se a percorrer um caminho de comprimento $\le D$ por árvore, com custo leve
-$O(D)$ por amostra e acesso somente de leitura em memória.
-
-\section{Implementação paralela}
+\section{Paralelização com OpenMP}
 \label{sec:impl}
 
-\subsection{OpenMP}
+A implementação paraleliza dois laços e mantém sequencial o trabalho interno de cada
+um. O tamanho do time é \texttt{OMP\_NUM\_THREADS}. Com \texttt{OMP\_DYNAMIC}
+desligado, o runtime não reduz esse time durante a execução. A cláusula
+\texttt{default(none)} obriga a classificar toda variável do laço como compartilhada
+ou privativa, de modo que as escritas fiquem explícitas.
 
-No treinamento da CPU multi-core, a diretiva \texttt{\#pragma omp parallel for} com
-escalonamento dinâmico (\texttt{schedule(dynamic)}) entrega uma árvore por iteração.
-A arena de nós e o estado do gerador são privativos de cada thread, eliminando
-contenções de sincronização. O escalonamento dinâmico justifica-se pelo tamanho
-assimétrico das árvores induzidas. Na predição, \texttt{schedule(static)} distribui
-as linhas igualmente, atuando sobre árvores em modo somente leitura. A versão
-sequencial em C11 compartilha da mesma lógica em um único fluxo.
+\subsection{Crescimento das árvores}
 
-\subsection{CUDA}
+O treinamento percorre as $T$ árvores com
+\texttt{\#pragma omp parallel for schedule(dynamic) default(none)} sobre o índice
+$t$. Sem tamanho de bloco, o escalonamento dinâmico entrega uma árvore por vez: a
+thread que termina pede o próximo índice. Cada árvore sorteia a própria amostra
+bootstrap e a própria sequência de atributos, então o número de nós e o tempo de
+cada ordenação variam. Um \texttt{schedule(static)} fixaria um bloco de índices no
+início do laço, e a thread que recebesse várias árvores profundas seguraria a
+barreira final enquanto as outras já tivessem terminado.
 
-Na GPU, cada bloco de 256 threads induz uma árvore. Para bases de menor porte
-($N \le 1{.}024$, Iris e WDBC), os índices e pares (valor, classe) permanecem na
-memória compartilhada (\textit{shared memory}) do bloco, e a ordenação cooperativa
-utiliza uma rede bitônica paralela~\cite{batcher:1968} com barreiras
-\texttt{\_\_syncthreads()}. Acima desse limite (Letter e Covertype), a ordenação
-bitônica opera na memória global (VRAM) e as árvores são processadas em lotes cujo
-espaço de trabalho não excede 512\,MB, viabilizando a execução em GPUs de 4\,GB.
+No caminho de sucesso, o que é compartilhado é somente leitura: o vetor de árvores,
+a matriz de treino e os hiperparâmetros. O índice $t$ e a semente
+$s_t = s + t \cdot \texttt{0x9E3779B9} + 1$ são privativos. A rotina que cresce a
+árvore $t$ aloca, na thread que a executa, o vetor bootstrap, os contadores de classe
+e a arena de nós daquela árvore. A ordenação de um atributo usa um vetor de pares
+local. Nenhuma dessas estruturas é compartilhada, e o crescimento não entra em
+região crítica. A única escrita compartilhada é a bandeira de falha de alocação,
+atualizada com \texttt{\#pragma omp atomic write}. Na execução normal, a única
+sincronização é a barreira implícita no fim do \texttt{parallel for}.
 
-A expansão dos nós emprega uma pilha LIFO: o filho direito é empilhado antes do
-esquerdo, assegurando que o esquerdo seja processado primeiro, como na recursão em
-pré-ordem da CPU. A predição lança uma thread por amostra. Nas medições, distingue-se
-o tempo de kernel do tempo fim a fim (que engloba o tráfego via PCIe).
+A semente depende do índice da árvore, não da thread que a constrói. Mudar o
+escalonamento troca o núcleo que produz a árvore $t$, e preserva a sequência de
+cortes associada a esse índice.
+
+O laço interno, que percorre os $m$ atributos do nó e ordena os pares, permanece
+sequencial. Um segundo \texttt{parallel for} aninhado repartiria um vetor curto
+entre threads que o laço externo já distribuiu pelos núcleos. Por omissão, o runtime
+também não forma um segundo time dentro de uma região que já está ativa. Várias
+árvores crescem ao mesmo tempo lendo a mesma matriz de treino: as amostras bootstrap
+se sobrepõem, e as ordenações disputam a cache de último nível e o controlador de
+memória do chip. É esse compartilhamento de leitura, e não uma trava entre árvores,
+que limita o speedup quando o número de threads se aproxima dos processadores
+lógicos.
+
+\subsection{Predição e acurácia}
+
+Depois do treinamento os nós não mudam. A predição paraleliza as linhas, não as
+árvores, com \texttt{\#pragma omp parallel for schedule(static) default(none)}.
+Cada linha desce todas as árvores, num caminho de comprimento no máximo $D$, sobre
+estruturas somente leitura. Como esse custo é regular, o escalonamento estático
+divide as $n$ linhas em blocos contíguos de tamanho próximo de $n/p$, um bloco por
+thread, sem roubo de trabalho. Linhas vizinhas ocupam posições vizinhas na matriz,
+e o bloco contíguo reaproveita a cache.
+
+A thread avalia uma linha por vez. O voto percorre as árvores em série e acumula a
+classe da folha num vetor privativo; a classe majoritária é escrita só na posição
+daquela linha. Paralelizar o voto de uma única linha pediria uma redução sobre as
+$K$ classes e só se pagaria com uma amostra e muitas árvores. O laço externo já
+distribui, nas bases grandes, dezenas ou centenas de milhares de linhas.
+
+A acurácia percorre as predições com outro laço estático e
+\texttt{reduction(+:ok)}. Cada thread soma os acertos do próprio bloco numa parcial
+privativa, e o runtime adiciona as parciais ao fim do laço.
+
+\subsection{Linha de base}
+
+Todos os speedups usam este mesmo binário. Com uma thread o \texttt{parallel for}
+continua no código, mas o time tem um único membro: a razão $T(1)/T(p)$ isola o
+número de threads, e não a diferença entre dois programas. Quando $p$ passa de 12,
+as threads excedentes dividem os 12 processadores lógicos por fatias de tempo do
+sistema operacional.
 
 \section{Metodologia experimental}
 \label{sec:met}
 
-Os conjuntos de dados utilizados são Iris~\cite{fisher:1936}, Wisconsin Diagnostic
-Breast Cancer (WDBC)~\cite{street:1993}, Letter Recognition~\cite{frey:1991} e Forest
+Os conjuntos de dados são Iris~\cite{fisher:1936}, Wisconsin Diagnostic Breast Cancer
+(WDBC)~\cite{street:1993}, Letter Recognition~\cite{frey:1991} e Forest
 Covertype~\cite{blackard:1999}. Os hiperparâmetros de Iris, WDBC e Letter foram
-calibrados por busca em grade no binário OpenMP, selecionando a configuração mais
-concisa cuja acurácia média de teste permaneceu a até 0{,}0025 da melhor observada. O
-Covertype foi fixado em 50 árvores, profundidade 30 e $m = 18$. As três versões
-recebem os mesmos parâmetros e sementes. A Tabela~\ref{tab:config} resume as
-dimensões, o holdout (80\% treino e 20\% teste) e a acurácia.
+calibrados por busca em grade, selecionando a configuração mais concisa cuja
+acurácia média de teste permaneceu a até 0{,}0025 da melhor observada. O Covertype
+foi fixado em 50 árvores, profundidade 30 e $m = 18$. A Tabela~\ref{tab:config}
+resume as dimensões, o holdout (80\% treino e 20\% teste) e a acurácia de teste
+medida com uma thread.
 
-\begin{table}[!ht]
+\begin{table}[H]
 \centering
-\caption{Partição holdout de 20\% e acurácia de teste. O número mínimo de amostras
-para partição ($n_{\min}$) é 5 para Iris e WDBC, e 2 para Letter e Covertype. A
-acurácia na CPU é idêntica nas versões sequencial e OpenMP.}
+\caption{Partição holdout de 20\% e acurácia de teste com uma thread. O número
+mínimo de amostras para partição ($n_{\min}$) é 5 para Iris e WDBC, e 2 para
+Letter e Covertype.}
 \label{tab:config}
 \footnotesize
-\setlength{\tabcolsep}{3.2pt}
-\begin{tabular}{@{}lrrrrrrrrr@{}}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lrrrrrrrr@{}}
 \toprule
-& & & & & & & & \multicolumn{2}{c}{Acurácia} \\
-\cmidrule(lr){9-10}
-Conjunto & Treino & Teste & $d$ & $K$ & Árv. & Prof. & $m$ & CPU & GPU \\
+Conjunto & Treino & Teste & $d$ & $K$ & Árv. & Prof. & $m$ & Acurácia \\
 \midrule
-Iris     & 120    & 30     & 4  & 3  & 300 & 12 & 2  & 0{,}9333 & 0{,}9333 \\
-WDBC     & 455    & 114    & 30 & 2  & 300 & 6  & 3  & 0{,}9912 & 0{,}9912 \\
-Letter   & 16{.}000 & 4{.}000 & 16 & 26 & 300 & 30 & 4 & 0{,}9617 & 0{,}9603 \\
-Cover    & 464{.}809 & 116{.}203 & 54 & 7 & 50 & 30 & 18 & 0{,}9599 & 0{,}9603 \\
+Iris     & 120      & 30       & 4  & 3  & 300 & 12 & 2  & 0{,}9333 \\
+WDBC     & 455      & 114      & 30 & 2  & 300 & 6  & 3  & 0{,}9912 \\
+Letter   & 16{.}000 & 4{.}000  & 16 & 26 & 300 & 30 & 4  & 0{,}9620 \\
+Cover    & 464{.}809 & 116{.}203 & 54 & 7 & 50 & 30 & 18 & 0{,}9603 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-O hardware compreende uma CPU Intel Core i5-12500H (12 núcleos físicos, sendo 4
-de desempenho e 8 de eficiência, 16 threads lógicas) e uma GPU dedicada NVIDIA
-GeForce RTX 3050 Laptop (4\,GB VRAM, arquitetura Ampere, capacidade de computação
-8.6), sob o Windows 11. O consumo de energia consolidado é dado por
-$E = E_{\mathrm{CPU}} + E_{\mathrm{GPU}}$, monitorando o processador via Intel RAPL
-em nanojoules e a GPU via NVML em milijoules. A potência média é $\bar{P} = E/\Delta t$
-e o Produto Energia-Atraso é $\mathrm{EDP} = E \cdot \Delta t$, onde $\Delta t$ é o
-tempo de relógio de parede do processo completo (leitura de dados, treino e
-inferência). A potência em repouso do sistema foi de 17{,}08\,W ao longo de 3\,s
-prévios. Reporta-se a energia bruta integral, sem descontos.
+A varredura de escalonamento forte usa o mesmo binário OpenMP com
+\texttt{OMP\_NUM\_THREADS} em $\{1, 2, 4, 8, 16, 32\}$ e \texttt{OMP\_DYNAMIC}
+desligado, uma execução por configuração, semente 42. O speedup de uma etapa é a
+razão entre o tempo com uma thread e o tempo com $p$ threads. O hardware é um
+Intel Core i5-1235U (10 núcleos, dos quais 2 de desempenho com \textit{hyper-threading}
+e 8 de eficiência, 12 threads lógicas) sob Windows. Os pontos de 16 e 32 threads
+excedem os processadores lógicos disponíveis.
 
-Para Iris, WDBC e Letter, realizaram-se três execuções após uma rodada preliminar de
-aquecimento (\textit{warm-up}) descartada, utilizando-se as médias aritméticas. O
-Covertype teve execução única sem aquecimento. Os tempos de treino e predição vêm
-dos cronômetros internos do programa. A predição afere treino e teste conjuntamente
-para cálculo da acurácia global, enquanto a coluna Kernel isola a inferência no teste
-na GPU. O processo CUDA reavalia a floresta na CPU para checar divergências,
-computando esse tempo na energia e no EDP, mas excluindo-o do tempo de predição da
-GPU. Como os sensores atualizam-se na escala de dezenas de milissegundos, execuções
-inferiores a 0{,}5\,s (Iris) atingem o piso de sensibilidade dos medidores.
+A energia $E$ não é a do notebook inteiro. O Intel RAPL~\cite{david:2010} acumula
+joules em domínios do chip. O domínio lido aqui é o \textit{package}, o
+encapsulamento físico do processador: os núcleos de desempenho e de eficiência, as
+caches e a lógica compartilhada do chip, inclusive o controlador de memória
+integrado e a interconexão entre os núcleos. O contador é amostrado em nanojoules
+no início e no fim do processo; $E$ é a diferença, convertida para joules. A DRAM
+permanece num domínio próprio do RAPL e não entra nessa diferença.
+
+A potência média do pacote é $\bar{P} = E/\Delta t$, em watts. É a energia do
+encapsulamento dividida pelo intervalo de parede da execução completa, que inclui a
+leitura do arquivo, o treino e a inferência. Não é a potência instantânea de um
+núcleo, nem o consumo medido na tomada. Com uma thread o package já mantém ligados
+a cache de último nível e o controlador de memória. Threads adicionais acordam
+outros núcleos e elevam $\bar{P}$, mas não na proporção de $p$: a parte
+compartilhada do chip não se replica por thread, e um núcleo de eficiência dissipa
+menos que um núcleo de desempenho. O Produto Energia-Atraso é
+$\mathrm{EDP} = E \cdot \Delta t$, e o speedup correspondente é
+$S_{\mathrm{EDP}} = E_1 \Delta t_1 / E_p \Delta t_p$. Os tempos de treino e de
+predição vêm dos cronômetros internos do programa. Como o contador RAPL
+atualiza-se na escala de dezenas de milissegundos, execuções inferiores a cerca de
+0{,}5\,s (Iris, e parte do WDBC) ficam no piso de sensibilidade do medidor; as
+conclusões energéticas apoiam-se em Letter e Covertype.
 
 \section{Resultados}
 \label{sec:res}
 
-Os tempos de execução e respectivos speedups estão consolidados na
-Tabela~\ref{tab:treino} (treino) e na Tabela~\ref{tab:pred} (predição). A
-Figura~\ref{fig:speedup} sintetiza os speedups de treino, predição e EDP. No
-treinamento, o OpenMP alcança fatores de aceleração de 2{,}69$\times$ a
-7{,}99$\times$. A aceleração da GPU supera o sequencial apenas no WDBC
-(1{,}63$\times$). No Covertype, o treinamento demanda 213{,}81\,s no sequencial,
-34{,}49\,s no OpenMP e 483{,}32\,s na GPU.
+A Figura~\ref{fig:speedup} mostra a curva de speedup do treinamento, e a
+Tabela~\ref{tab:treino} lista os tempos e os fatores correspondentes. Em Letter e
+Covertype a curva acompanha a reta linear até 4 threads (eficiência de 0{,}95 e
+0{,}92), continua subindo até 16 threads e estabiliza em 32: 7{,}19$\times$ no
+Letter (19{,}50\,s para 2{,}71\,s) e 7{,}32$\times$ no Covertype (510{,}8\,s para
+69{,}7\,s). No WDBC o máximo é 6{,}15$\times$ em 16 threads (0{,}406\,s para
+0{,}066\,s), com recuo para 4{,}67$\times$ em 32. No Iris, cujo treino com uma
+thread dura 26\,ms, o máximo é 2{,}89$\times$ em 8 threads e o ponto de 32 threads
+volta a 1{,}13$\times$.
 
-\begin{table}[!ht]
+\begin{table}[H]
 \centering
-\caption{Tempo de treinamento e speedup sobre a linha de base sequencial.}
+\caption{Tempo de treinamento (s) e speedup sobre a execução com uma thread.}
 \label{tab:treino}
 \footnotesize
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}lrrrrr@{}}
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{@{}llrrrrrr@{}}
 \toprule
-Conjunto & Seq. (s) & OpenMP (s) & CUDA (s) & $S_{\mathrm{OMP}}$ & $S_{\mathrm{CUDA}}$ \\
+Conjunto & & 1 & 2 & 4 & 8 & 16 & 32 \\
 \midrule
-Iris   & 0{,}010 & 0{,}004 & 0{,}047 & 2{,}69 & 0{,}21 \\
-WDBC   & 0{,}130 & 0{,}022 & 0{,}079 & 6{,}00 & 1{,}63 \\
-Letter & 8{,}07  & 1{,}01  & 13{,}84 & 7{,}99 & 0{,}58 \\
-Cover  & 213{,}81 & 34{,}49 & 483{,}32 & 6{,}20 & 0{,}44 \\
+Iris   & $t$ & 0{,}026 & 0{,}013 & 0{,}023 & 0{,}009 & 0{,}011 & 0{,}023 \\
+       & $S$ & 1{,}00  & 2{,}00  & 1{,}13  & 2{,}89  & 2{,}36  & 1{,}13  \\
+WDBC   & $t$ & 0{,}406 & 0{,}256 & 0{,}169 & 0{,}085 & 0{,}066 & 0{,}087 \\
+       & $S$ & 1{,}00  & 1{,}59  & 2{,}40  & 4{,}78  & 6{,}15  & 4{,}67  \\
+Letter & $t$ & 19{,}50 & 9{,}89  & 5{,}12  & 3{,}27  & 2{,}84  & 2{,}71  \\
+       & $S$ & 1{,}00  & 1{,}97  & 3{,}81  & 5{,}96  & 6{,}87  & 7{,}19  \\
+Cover  & $t$ & 510{,}8 & 267{,}5 & 138{,}7 & 95{,}16 & 70{,}79 & 69{,}74 \\
+       & $S$ & 1{,}00  & 1{,}91  & 3{,}68  & 5{,}37  & 7{,}22  & 7{,}32  \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{table}[!ht]
-\centering
-\caption{Tempo de predição sobre treino e teste (em milissegundos) e speedup sobre o
-sequencial. A coluna Kernel isola a execução da GPU unicamente no teste;
-$S_{\mathrm{ker}}$ denota a razão direta $\text{Seq.}/\text{Kernel}$, equivalente a
-ganhos amostrais efetivos de cerca de 115$\times$ e 29$\times$ ao se isolar o teste.}
-\label{tab:pred}
-\footnotesize
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}lrrrrrrr@{}}
-\toprule
-Conjunto & Seq. & OMP & CUDA & Kernel & $S_{\mathrm{OMP}}$ & $S_{\mathrm{CUDA}}$ & $S_{\mathrm{ker}}$ \\
-\midrule
-Iris   & 0{,}48 & 0{,}38 & 2{,}45 & 0{,}47 & 1{,}28 & 0{,}20 & 1{,}02 \\
-WDBC   & 3{,}76 & 1{,}23 & 3{,}65 & 0{,}57 & 3{,}06 & 1{,}03 & 6{,}55 \\
-Letter & 1{.}780 & 134 & 62{,}2 & 3{,}11 & 13{,}3 & 28{,}7 & 573 \\
-Cover  & 13{.}446 & 904 & 897 & 93{,}0 & 14{,}9 & 15{,}0 & 145 \\
-\bottomrule
-\end{tabular}
-\end{table}
+O tempo de parede do processo, que inclui a leitura do arquivo, acompanha o treino
+nas bases grandes: no Covertype, de 530{,}7\,s para 71{,}4\,s (7{,}43$\times$ em
+32 threads); no Letter, de 21{,}88\,s para 3{,}00\,s (7{,}31$\times$).
 
-Na predição fim a fim, o OpenMP proporciona ganhos graduais de 1{,}28$\times$ no
-Iris até 14{,}9$\times$ no Covertype. A GPU fim a fim destaca-se em volumes
-elevados, alcançando 28{,}7$\times$ no Letter (de 1{,}78\,s para 62{,}2\,ms) e
-15{,}0$\times$ no Covertype (897\,ms contra 13{,}45\,s). Ao isolar o kernel de
-teste na GPU, obtêm-se 3{,}11\,ms no Letter e 93{,}0\,ms no Covertype (fatores de
-573 e 145 na Tabela~\ref{tab:pred}). Como a contagem sequencial inclui treino e teste
-(com o treino correspondendo a 80\% das amostras), ponderar somente o teste resulta
-em ganhos efetivos de cerca de 115 e 29 vezes, sem transferências. O tempo fim a fim
-constitui o indicador realista para sistemas em produção.
+Na predição, Letter passa de 2{,}38\,s para 0{,}28\,s (8{,}43$\times$ em 32
+threads) e Covertype de 19{,}91\,s para 1{,}70\,s (11{,}75$\times$). A
+Tabela~\ref{tab:pred} detalha essa etapa. O ganho supera o do treino porque o
+custo por amostra é uniforme e o escalonamento estático reparte linhas somente de
+leitura. No Iris e no WDBC a predição dura entre 0 e 13\,ms, na resolução do
+cronômetro interno, e esses pontos não entram na curva.
 
-\begin{figure}[!ht]
+\begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figuras/speedup.pdf}
-\caption{Speedup obtido em relação à implementação sequencial de referência. A linha
-tracejada horizontal demarca a paridade unitária ($1\times$). Em (b), a escala é
-logarítmica (base 10) com barras ancoradas na paridade unitária ($1\times$), e a
-série hachurada retrata o tempo de kernel da GPU no teste comparado ao tempo total
-sequencial. Em (a) e (c), essa subdivisão não se aplica. O registro de energia do
-conjunto Iris situa-se no piso de resolução dos sensores.}
+\caption{Speedup de treinamento em relação à mesma implementação OpenMP com uma
+thread. A reta tracejada é o speedup linear. Letter e Covertype sobem até cerca
+de 7$\times$ e estabilizam entre 16 e 32 threads. Iris e WDBC, com treino abaixo
+de meio segundo, atingem o máximo antes e recuam em 32 threads.}
 \label{fig:speedup}
 \end{figure}
 
-A Tabela~\ref{tab:energia} reúne o consumo de energia e o speedup do EDP
-($S_{\mathrm{EDP}} = E_{\mathrm{seq}}\Delta t_{\mathrm{seq}} / E_{\mathrm{par}}\Delta t_{\mathrm{par}}$).
-No Letter, o OpenMP dissipa 41{,}9\,J contra 162\,J do sequencial e 560\,J da CUDA,
-produzindo um speedup de EDP de 31{,}2$\times$. No Covertype, os consumos são de
-903\,J (OpenMP), 3{.}811\,J (sequencial) e 19{.}297\,J (CUDA), gerando speedup de
-EDP de 23{,}3$\times$ para o OpenMP e 0{,}09$\times$ para a CUDA. A potência média no
-Letter e no Covertype situou-se em 16{,}3\,W no sequencial, 34{,}0\,W e 21{,}3\,W no
-OpenMP, e 35{,}8\,W e 38{,}2\,W na CUDA. Assim, o speedup de EDP da GPU permaneceu
-abaixo de 1 em todos os conjuntos (0{,}09$\times$ a 0{,}48$\times$).
-
-\begin{table}[!ht]
+\begin{table}[H]
 \centering
-\caption{Consumo de energia integral do processo e speedup de EDP sobre o
-sequencial. Os registros do conjunto Iris situam-se na resolução mínima dos
-sensores RAPL e NVML.}
-\label{tab:energia}
+\caption{Tempo de predição (s) e speedup sobre a execução com uma thread, nas
+bases em que o cronômetro resolve a etapa.}
+\label{tab:pred}
 \footnotesize
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{@{}lrrrrr@{}}
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{@{}llrrrrrr@{}}
 \toprule
-Conjunto & Seq. (J) & OpenMP (J) & CUDA (J) & $S_{\mathrm{EDP}}^{\mathrm{OMP}}$ & $S_{\mathrm{EDP}}^{\mathrm{CUDA}}$ \\
+Conjunto & & 1 & 2 & 4 & 8 & 16 & 32 \\
 \midrule
-Iris   & 8{,}16 & 3{,}45 & 10{,}6 & 3{,}21 & 0{,}12 \\
-WDBC   & 6{,}39 & 3{,}62 & 10{,}4 & 6{,}59 & 0{,}48 \\
-Letter & 162   & 41{,}9 & 560  & 31{,}2 & 0{,}18 \\
-Cover  & 3{.}811 & 903 & 19{.}297 & 23{,}3 & 0{,}09 \\
+Letter & $t$ & 2{,}38 & 1{,}24 & 0{,}66 & 0{,}36 & 0{,}29 & 0{,}28 \\
+       & $S$ & 1{,}00 & 1{,}91 & 3{,}59 & 6{,}57 & 8{,}20 & 8{,}43 \\
+Cover  & $t$ & 19{,}91 & 7{,}94 & 4{,}30 & 2{,}53 & 1{,}84 & 1{,}70 \\
+       & $S$ & 1{,}00 & 2{,}51 & 4{,}63 & 7{,}87 & 10{,}80 & 11{,}75 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Em acurácia, sequencial e OpenMP coincidem perfeitamente. A GPU reproduz a CPU em
-Iris e WDBC, exibindo divergências residuais na terceira casa decimal em Letter e
-Covertype (0{,}9603 contra 0{,}9617 e 0{,}9603 contra 0{,}9599). O binário CUDA
-registrou zero divergências de predição entre GPU e CPU para a mesma floresta
-treinada em todas as 30, 114, 4{.}000 e 116{.}203 amostras de teste. Portanto, o
-treinamento na GPU gera árvores sutilmente distintas da CPU devido à ordem em que
-empates na impureza de Gini são desfeitos (varredura linear na CPU versus redução
-paralela bitônica no bloco CUDA). Em contrapartida, quando uma mesma floresta é
-avaliada em ambas as arquiteturas, a inferência exibe determinismo rigoroso e
-correspondência perfeita.
+A Tabela~\ref{tab:energia} reúne a energia do pacote e o speedup de EDP. No
+Letter, a energia cai de 53{,}1\,J para 24{,}5\,J em 32 threads e o EDP melhora
+14{,}4$\times$. No Covertype, a energia cai de 2{.}085\,J para 588\,J e o EDP
+melhora 20{,}8$\times$. A potência média do pacote, $\bar{P} = E/\Delta t$, sobe
+menos do que o tempo cai: no Letter, de 2{,}38\,W com uma thread para 7{,}31\,W
+com 32; no Covertype, de 3{,}74\,W para 6{,}20\,W. O encurtamento da execução,
+somado a esse aumento moderado da energia por segundo do chip, reduz ao mesmo
+tempo a energia total e o atraso. No Iris e no WDBC
+os joules medidos oscilam na casa de 0{,}2\,J a 4\,J e o speedup de EDP não é
+monótono; esses registros permanecem no piso do RAPL. A acurácia de teste não
+depende do número de threads de forma material. Iris e WDBC repetem 0{,}9333 e
+0{,}9912 em todos os pontos. Letter permanece no intervalo 0{,}9613--0{,}9627 e
+Covertype no intervalo 0{,}9599--0{,}9603, isto é, a menos de 0{,}15 ponto
+percentual do valor com uma thread.
+
+\begin{table}[H]
+\centering
+\caption{Energia do pacote da CPU (J) e speedup de EDP sobre a execução com uma
+thread. Letter e Covertype estão acima do piso de resolução do RAPL.}
+\label{tab:energia}
+\footnotesize
+\setlength{\tabcolsep}{4.2pt}
+\begin{tabular}{@{}llrrrrrr@{}}
+\toprule
+Conjunto & & 1 & 2 & 4 & 8 & 16 & 32 \\
+\midrule
+Letter & $E$ & 53{,}1 & 42{,}1 & 32{,}5 & 28{,}5 & 26{,}6 & 24{,}5 \\
+       & $S_{\mathrm{EDP}}$ & 1{,}00 & 2{,}44 & 5{,}92 & 10{,}36 & 12{,}81 & 14{,}36 \\
+Cover  & $E$ & 2{.}085 & 1{.}396 & 900 & 768 & 623 & 588 \\
+       & $S_{\mathrm{EDP}}$ & 1{,}00 & 2{,}76 & 7{,}76 & 12{,}43 & 19{,}27 & 20{,}81 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \section{Discussão}
 \label{sec:disc}
 
-O treinamento favorece a arquitetura de CPU com OpenMP. A combinação de recursão
-eficiente, caches privativas L1/L2 e previsão de saltos por núcleo minimiza as
-latências de ordenação e corte. A independência entre árvores viabiliza um speedup de
-7{,}99$\times$ no Letter sobre 16 threads lógicas. O teto decorre da variação no
-tamanho das árvores e da disputa no barramento de memória durante as ordenações
-paralelas. Na GPU, o treino supera o sequencial apenas no WDBC (1{,}63$\times$), cuja
-base de 455 instâncias cabe na memória compartilhada rápida. Em Letter e Covertype,
-a necessidade de sincronizar threads a cada estágio da rede bitônica em memória
-global, somada às árvores profundas ($D = 30$) com nós assimétricos, introduz severa
-divergência de warp e custo de sincronização, tornando a execução até 2{,}3 vezes
-mais lenta que um núcleo sequencial (0{,}44$\times$ no Covertype).
+O treinamento escala enquanto há árvores independentes e núcleos capazes de
+ordená-las ao mesmo tempo. Até 4 threads, Letter e Covertype ficam próximos da
+reta linear porque esse contingente coincide com as quatro threads lógicas dos
+dois núcleos de desempenho. De 4 para 8 threads entram os núcleos de eficiência,
+que aumentam a vazão com eficiência menor (0{,}75 no Letter e 0{,}67 no Covertype,
+em 8 threads). De 8 para 16 threads o ganho continua, embora 16 já ultrapasse as
+12 threads lógicas do processador; de 16 para 32 o treino das bases grandes
+praticamente para (7{,}22$\times$ para 7{,}32$\times$ no Covertype). O teto vem da
+banda de memória das ordenações, da assimetria entre árvores, mesmo com
+escalonamento dinâmico, e da disputa por núcleo quando $p$ excede o hardware.
 
-Na inferência, a GPU manifesta sua superioridade arquitetural. Uma vez construída a
-floresta, cada amostra de teste é avaliada de forma independente sobre estruturas
-estáticas de leitura. A ausência de contenções de escrita maximiza a ocupação dos
-multiprocessadores. Em conjuntos volumosos (Letter e Covertype), o rendimento
-massivo da GPU amortiza com folga o tráfego via PCIe, atingindo speedups fim a fim de
-28{,}7$\times$ e 15{,}0$\times$. No Iris (30 instâncias de teste), a sobrecarga do
-protocolo prepondera, resultando em speedup de 0{,}20$\times$. O OpenMP surge como
-alternativa intermediária equilibrada (1{,}28$\times$ a 14{,}9$\times$), com
-latência nula de transferência de dados.
+Nas bases pequenas o mesmo mecanismo aparece mais cedo. O WDBC, com 455 amostras
+de treino, ainda chega a 6{,}15$\times$ em 16 threads e perde terreno em 32, quando
+o custo de acordar threads e de repartir 300 árvores curtas supera o trabalho de
+cada uma. O Iris, com 120 amostras e 26\,ms de treino sequencial, oscila entre
+1{,}13$\times$ e 2{,}89$\times$: a maior parte do tempo medido é overhead, não
+ordenação. A predição, por outro lado, reparte dezenas ou centenas de milhares de
+amostras de custo uniforme. Por isso o Covertype chega a 11{,}75$\times$ na
+inferência com 32 threads, acima do speedup de treino, mesmo sobre 12 threads
+lógicas: o laço é curto, regular e limitado sobretudo pela leitura das árvores.
 
-A métrica de EDP acompanha o tempo de treino, que domina o processo nos conjuntos
-maiores. A RTX 3050 Laptop dissipa entre 35\,W e 38\,W continuamente durante a
-execução CUDA. Sem compressão temporal, essa potência mantida por centenas de
-segundos degrada o produto energia-atraso. O OpenMP, embora aumente a potência
-instantânea (34\,W no Letter), encurta o tempo em proporção bem superior, gerando
-economia líquida de energia e ganhos de EDP de até 31{,}2$\times$. A checagem
-auxiliar na CPU adiciona carga secundária na energia CUDA (cerca de 13\,s diante de
-483\,s de treino no Covertype), sem alterar as conclusões centrais.
+O EDP acompanha essa assimetria entre tempo e potência do pacote. No Covertype,
+$\bar{P}$ sobe de 3{,}74\,W para 6{,}20\,W (1{,}7 vezes): uma thread já paga a
+cache e o controlador de memória, e as threads seguintes só acrescentam núcleos em
+cima dessa base. O intervalo medido do processo encolhe o bastante para a energia
+cair de 2{.}085\,J para 588\,J. O
+produto dos dois efeitos é o speedup de EDP de 20{,}8$\times$, maior que o speedup
+de tempo. O Letter repete o padrão em menor escala (14{,}4$\times$). Acrescentar
+threads além de 16 melhora pouco o EDP dessas duas bases e não se justifica nas
+bases cujo tempo já está no piso do sensor.
 
 \section{Conclusão}
 \label{sec:conc}
 
-Neste trabalho, avaliou-se o compromisso entre tempo, acurácia preditiva e
-eficiência energética na paralelização do Random Forest em CPU e GPU sobre quatro
-conjuntos de dados heterogêneos.
+A varredura de 1 a 32 threads mostra que o Random Forest em OpenMP aproveita os
+núcleos enquanto o treinamento é dominado por árvores independentes. Em Letter e
+Covertype o treino acelera até 7{,}19$\times$ e 7{,}32$\times$, a predição até
+8{,}43$\times$ e 11{,}75$\times$, e o EDP do pacote da CPU até 14{,}4$\times$ e
+20{,}8$\times$, com a acurácia de teste estável. A curva é quase linear até 4
+threads, ainda sobe até 16 e satura em 32, acima das 12 threads lógicas do
+i5-1235U. Em Iris e WDBC o máximo ocorre antes e o excesso de threads aumenta o
+tempo.
 
-Os resultados demonstram que o treinamento do algoritmo é significativamente mais
-eficiente em CPU multi-core com OpenMP, alcançando acelerações de até 7{,}99$\times$
-e ganhos de EDP de até 31{,}2$\times$. A indução em GPU é penalizada por divergência
-de fluxo e sincronizações em memória global, sendo vantajosa apenas quando as
-amostras cabem na memória compartilhada rápida do bloco. Por outro lado, a
-inferência consolida-se como o domínio ótimo da GPU, onde o paralelismo massivo por
-amostra atinge ganhos fim a fim de até 28{,}65$\times$, com correspondência exata de
-predições com a CPU para um mesmo modelo induzido.
-
-Conclui-se que o arranjo ótimo para Random Forests consiste em um modelo heterogêneo
-cooperativo: induzir o comitê de árvores em CPU multi-core via OpenMP e descarregar a
-inferência em lote para a GPU via CUDA. Trabalhos futuros podem avaliar representações
-aproximadas por histogramas na GPU e sobreposição assíncrona de transferências na
-predição.
+O arranjo prático, neste processador, é usar de 8 a 16 threads nas bases em que a
+ordenação dos cortes domina o tempo, e poucas threads quando o treino dura frações
+de segundo. Trabalhos futuros podem fixar a afinidade das threads aos núcleos de
+desempenho e medir o mesmo escalonamento em processadores com mais núcleos
+homogêneos.
 
 \bibliographystyle{sbc}
 \bibliography{artigo}

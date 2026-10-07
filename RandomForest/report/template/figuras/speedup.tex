@@ -1,75 +1,51 @@
-\documentclass[tikz,border=1.5mm]{standalone}
+\documentclass[tikz,border=2mm]{standalone}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
-\usepgfplotslibrary{groupplots}
-\usetikzlibrary{patterns}
 \begin{document}
 \begin{tikzpicture}
-\begin{groupplot}[
-  group style={
-    group size=3 by 1,
-    horizontal sep=1.05cm
-  },
-  width=4.85cm,
-  height=4.35cm,
+\begin{axis}[
+  width=12.2cm,
+  height=6.15cm,
   scale only axis,
-  ybar,
-  /pgf/bar width=3.2pt,
-  symbolic x coords={Iris,WDBC,Letter,Cover},
-  xtick=data,
-  x tick label style={font=\scriptsize, rotate=32, anchor=east},
-  tick label style={font=\scriptsize},
-  ylabel style={font=\scriptsize},
-  title style={font=\scriptsize},
-  enlarge x limits=0.25,
+  xlabel={Threads OpenMP},
+  ylabel={Speedup de treino},
+  xtick={1,2,4,8,16,32},
+  xmin=0, xmax=34,
+  ymin=0, ymax=8.6,
+  ytick={0,2,4,6,8},
+  tick label style={font=\small},
+  label style={font=\small},
   axis line style={black},
   tick style={black},
-  every axis plot/.append style={draw=black, line width=0.3pt}
+  legend style={
+    font=\small,
+    at={(0.5,-0.22)},
+    anchor=north,
+    legend columns=5,
+    draw=none,
+    inner sep=1pt,
+    /tikz/every even column/.append style={column sep=0.35em},
+    /tikz/every odd column/.append style={column sep=0.85em}
+  },
+  legend cell align={left},
+  clip=true
 ]
-\nextgroupplot[
-  title={(a) Treino},
-  ylabel={Speedup},
-  ymin=0, ymax=10,
-  ytick={0,2,4,6,8,10},
-  extra y ticks={1},
-  extra y tick style={grid=major},
-  major grid style={dashed, black!55},
-  ymajorgrids=false
-]
-\addplot[fill=black!28] coordinates {(Iris,2.69) (WDBC,6.00) (Letter,7.99) (Cover,6.20)};
-\addplot[fill=black!72] coordinates {(Iris,0.21) (WDBC,1.63) (Letter,0.58) (Cover,0.44)};
-
-\nextgroupplot[
-  title={(b) Predi\c{c}\~{a}o},
-  ymode=log,
-  log origin=0,
-  ymin=0.12, ymax=1100,
-  ytick={0.1,1,10,100,1000},
-  yticklabel style={font=\scriptsize, /pgf/number format/fixed},
-  extra y ticks={1},
-  extra y tick style={grid=major},
-  major grid style={dashed, black!55}
-]
-\addplot[fill=black!28] coordinates {(Iris,1.28) (WDBC,3.06) (Letter,13.27) (Cover,14.88)};
-\addplot[fill=black!72] coordinates {(Iris,0.20) (WDBC,1.03) (Letter,28.65) (Cover,14.99)};
-\addplot[pattern=north east lines, pattern color=black] coordinates {(Iris,1.02) (WDBC,6.55) (Letter,573.39) (Cover,144.58)};
-
-\nextgroupplot[
-  title={(c) EDP},
-  ymin=0, ymax=36,
-  ytick={0,10,20,30},
-  extra y ticks={1},
-  extra y tick style={grid=major},
-  major grid style={dashed, black!55}
-]
-\addplot[fill=black!28] coordinates {(Iris,3.21) (WDBC,6.59) (Letter,31.15) (Cover,23.29)};
-\addplot[fill=black!72] coordinates {(Iris,0.12) (WDBC,0.48) (Letter,0.18) (Cover,0.09)};
-\end{groupplot}
-\node[font=\scriptsize, anchor=north] at ([yshift=-1mm]current bounding box.south) {%
-  \begin{tabular}{@{}c@{\hspace{1.5pt}}l@{\hspace{8pt}}c@{\hspace{1.5pt}}l@{\hspace{8pt}}c@{\hspace{1.5pt}}l@{}}
-    \tikz\fill[black!28,draw=black] (0,0) rectangle (7pt,5.5pt); & OpenMP &
-    \tikz\fill[black!72,draw=black] (0,0) rectangle (7pt,5.5pt); & CUDA &
-    \tikz\draw[pattern=north east lines, pattern color=black] (0,0) rectangle (7pt,5.5pt); & kernel CUDA
-  \end{tabular}};
+\addplot[black!50, dashed, line width=0.6pt, domain=0:34, samples=2] {x};
+\addlegendentry{linear}
+\addplot[black!65, solid, mark=*, mark size=1.6pt, line width=0.7pt]
+  coordinates {(1,1) (2,2.0000) (4,1.1304) (8,2.8889) (16,2.3636) (32,1.1304)};
+\addlegendentry{Iris}
+\addplot[black, dashed, mark=square*, mark size=1.5pt, line width=0.7pt]
+  coordinates {(1,1) (2,1.5859) (4,2.4024) (8,4.7765) (16,6.1515) (32,4.6667)};
+\addlegendentry{WDBC}
+\addplot[black, dashdotted, mark=triangle*, mark size=1.8pt, line width=0.75pt]
+  coordinates {(1,1) (2,1.9713) (4,3.8124) (8,5.9572) (16,6.8652) (32,7.1891)};
+\addlegendentry{Letter}
+\addplot[black, solid, mark=diamond*, mark size=1.9pt, line width=0.95pt]
+  coordinates {(1,1) (2,1.9098) (4,3.6827) (8,5.3677) (16,7.2159) (32,7.3245)};
+\addlegendentry{Covertype}
+\end{axis}
 \end{tikzpicture}
 \end{document}
