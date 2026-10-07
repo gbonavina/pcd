@@ -17,10 +17,7 @@ Marcelo F. Ohno\inst{1}, Vinicius M. Goulart\inst{1}}
 
 \address{Universidade Federal de São Paulo (Unifesp)\\[4pt]
   \footnotesize
-  \begin{tabular}[t]{@{}l@{\ }l@{\quad}l@{}}
-    e-mail: & gabriel.bonavina@unifesp.br & estevan.santos@unifesp.br \\
-            & vmgoulart07@unifesp.br & marcelo.fukuya@unifesp.br
-  \end{tabular}}
+  e-mail: \{gabriel.bonavina, estevan.santos, marcelo.ohno, vmgoulart07\}@unifesp.br}
 
 \begin{document}
 
@@ -32,7 +29,7 @@ random feature subsets at each split and determining predictions by majority vot
 Sorting candidate splits at each internal node dominates training runtime, while
 the trees themselves are independent. This paper measures the strong scaling of
 one OpenMP implementation on four benchmarks (150 to 581{,}012 samples), from 1
-to 32 threads, on a 12-thread Intel Core i5-1235U. Training speedup reaches
+to 32 threads, on a 6-core, 12-thread Intel Core i7-9750H. Training speedup reaches
 7.32$\times$ on Covertype and 7.19$\times$ on Letter Recognition, and the CPU
 package energy-delay product falls by up to 20.8$\times$. On the small sets the
 curve peaks earlier and declines once the thread count exceeds the available work.
@@ -46,7 +43,7 @@ definindo a predição por voto majoritário. A ordenação dos cortes candidato
 cada nó interno domina o treinamento, enquanto as árvores crescem de forma
 independente. Este trabalho mede o escalonamento forte de uma implementação
 OpenMP em quatro bases (150 a 581 mil instâncias), de 1 a 32 threads, em um
-Intel Core i5-1235U de 12 threads. O treino acelera até 7{,}32$\times$ no
+Intel Core i7-9750H de 6 núcleos e 12 threads. O treino acelera até 7{,}32$\times$ no
 Covertype e 7{,}19$\times$ no Letter Recognition, e o produto energia-atraso do
 pacote da CPU cai até 20{,}8$\times$. Nas bases pequenas a curva atinge o máximo
 antes e recua quando o número de threads excede o trabalho disponível. A
@@ -229,14 +226,15 @@ A varredura de escalonamento forte usa o mesmo binário OpenMP com
 \texttt{OMP\_NUM\_THREADS} em $\{1, 2, 4, 8, 16, 32\}$ e \texttt{OMP\_DYNAMIC}
 desligado, uma execução por configuração, semente 42. O speedup de uma etapa é a
 razão entre o tempo com uma thread e o tempo com $p$ threads. O hardware é um
-Intel Core i5-1235U (10 núcleos, dos quais 2 de desempenho com \textit{hyper-threading}
-e 8 de eficiência, 12 threads lógicas) sob Windows. Os pontos de 16 e 32 threads
-excedem os processadores lógicos disponíveis.
+Intel Core i7-9750H sob Windows: 6 núcleos físicos com \textit{hyper-threading}
+(12 threads lógicas), frequência de base 2{,}6\,GHz, turbo de até 4{,}5\,GHz,
+12\,MB de cache L3 e TDP de 45\,W. Os pontos de 16 e 32 threads excedem as 12
+threads lógicas.
 
 A energia $E$ não é a do notebook inteiro. O Intel RAPL~\cite{david:2010} acumula
 joules em domínios do chip. O domínio lido aqui é o \textit{package}, o
-encapsulamento físico do processador: os núcleos de desempenho e de eficiência, as
-caches e a lógica compartilhada do chip, inclusive o controlador de memória
+encapsulamento físico do processador: os seis núcleos, as caches e a lógica
+compartilhada do chip, inclusive o controlador de memória
 integrado e a interconexão entre os núcleos. O contador é amostrado em nanojoules
 no início e no fim do processo; $E$ é a diferença, convertida para joules. A DRAM
 permanece num domínio próprio do RAPL e não entra nessa diferença.
@@ -247,8 +245,9 @@ leitura do arquivo, o treino e a inferência. Não é a potência instantânea d
 núcleo, nem o consumo medido na tomada. Com uma thread o package já mantém ligados
 a cache de último nível e o controlador de memória. Threads adicionais acordam
 outros núcleos e elevam $\bar{P}$, mas não na proporção de $p$: a parte
-compartilhada do chip não se replica por thread, e um núcleo de eficiência dissipa
-menos que um núcleo de desempenho. O Produto Energia-Atraso é
+compartilhada do chip não se replica por thread, e a segunda thread de um núcleo,
+pelo \textit{hyper-threading}, divide unidades de execução que já estão ligadas.
+O Produto Energia-Atraso é
 $\mathrm{EDP} = E \cdot \Delta t$, e o speedup correspondente é
 $S_{\mathrm{EDP}} = E_1 \Delta t_1 / E_p \Delta t_p$. Os tempos de treino e de
 predição vêm dos cronômetros internos do programa. Como o contador RAPL
@@ -370,14 +369,19 @@ Cover  & $E$ & 2{.}085 & 1{.}396 & 900 & 768 & 623 & 588 \\
 
 O treinamento escala enquanto há árvores independentes e núcleos capazes de
 ordená-las ao mesmo tempo. Até 4 threads, Letter e Covertype ficam próximos da
-reta linear porque esse contingente coincide com as quatro threads lógicas dos
-dois núcleos de desempenho. De 4 para 8 threads entram os núcleos de eficiência,
-que aumentam a vazão com eficiência menor (0{,}75 no Letter e 0{,}67 no Covertype,
-em 8 threads). De 8 para 16 threads o ganho continua, embora 16 já ultrapasse as
-12 threads lógicas do processador; de 16 para 32 o treino das bases grandes
-praticamente para (7{,}22$\times$ para 7{,}32$\times$ no Covertype). O teto vem da
-banda de memória das ordenações, da assimetria entre árvores, mesmo com
-escalonamento dinâmico, e da disputa por núcleo quando $p$ excede o hardware.
+reta linear (eficiência de 0{,}95 e 0{,}92): quatro threads ocupam quatro dos seis
+núcleos físicos, cada uma com o núcleo inteiro. De 4 para 8 threads a eficiência
+cai para 0{,}75 no Letter e 0{,}67 no Covertype. Oito threads já passam dos seis
+núcleos, e pelo menos dois deles executam duas threads por \textit{hyper-threading},
+dividindo unidades de execução e as caches L1 e L2. De 8 para 16 threads o ganho
+continua, de 5{,}37$\times$ para 7{,}22$\times$ no Covertype, embora 16 já ultrapasse
+as 12 threads lógicas; de 16 para 32 o treino das bases grandes praticamente para
+(7{,}22$\times$ para 7{,}32$\times$ no Covertype). O teto fica acima dos seis núcleos
+físicos e abaixo das doze threads lógicas: o \textit{hyper-threading} acrescenta
+vazão sem dobrá-la, as ordenações disputam a banda de memória, e, acima de 12
+threads, as threads excedentes compartilham os mesmos processadores lógicos. O
+escalonamento dinâmico absorve a diferença de tamanho entre árvores, sem eliminar
+esse teto.
 
 Nas bases pequenas o mesmo mecanismo aparece mais cedo. O WDBC, com 455 amostras
 de treino, ainda chega a 6{,}15$\times$ em 16 threads e perde terreno em 32, quando
@@ -408,14 +412,14 @@ Covertype o treino acelera até 7{,}19$\times$ e 7{,}32$\times$, a predição at
 8{,}43$\times$ e 11{,}75$\times$, e o EDP do pacote da CPU até 14{,}4$\times$ e
 20{,}8$\times$, com a acurácia de teste estável. A curva é quase linear até 4
 threads, ainda sobe até 16 e satura em 32, acima das 12 threads lógicas do
-i5-1235U. Em Iris e WDBC o máximo ocorre antes e o excesso de threads aumenta o
+i7-9750H. Em Iris e WDBC o máximo ocorre antes e o excesso de threads aumenta o
 tempo.
 
 O arranjo prático, neste processador, é usar de 8 a 16 threads nas bases em que a
 ordenação dos cortes domina o tempo, e poucas threads quando o treino dura frações
-de segundo. Trabalhos futuros podem fixar a afinidade das threads aos núcleos de
-desempenho e medir o mesmo escalonamento em processadores com mais núcleos
-homogêneos.
+de segundo. Trabalhos futuros podem fixar uma thread por núcleo físico, para
+separar o efeito do \textit{hyper-threading}, e repetir a varredura em
+processadores com mais núcleos.
 
 \bibliographystyle{sbc}
 \bibliography{artigo}
