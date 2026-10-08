@@ -54,15 +54,6 @@ GRIDS: Dict[str, Dict[str, Any]] = {
         "min_samples": [2, 5],
         "mtry": [3, 5, 8, 11, 15],
     },
-    "sales_data": {
-        "data": os.path.join(DATA_DIR, "sales_data.csv"),
-        "target": "Product_Category",
-        "test_frac": 0.20,
-        "trees": [100, 200, 300],
-        "max_depth": [6, 10, 16, 24],
-        "min_samples": [2, 5],
-        "mtry": [3, 5, 8, 11, 13],
-    },
     "letter-recog": {
         "data": os.path.join(DATA_DIR, "letter-recognition.data"),
         "target": "0",

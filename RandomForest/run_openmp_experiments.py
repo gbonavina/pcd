@@ -2,8 +2,8 @@
 """
 Strong-scaling sweep for the OpenMP Random Forest, with CPU energy.
 
-Datasets and hyperparameters match python/benchmark_comparison.py.
-Energy comes from python/measure_energy.py: Intel RAPL through Windows PDH
+Datasets and hyperparameters are the ones reported in the article
+(report/template/artigo.tex, Table 1). Energy comes from python/measure_energy.py: Intel RAPL through Windows PDH
 (package counter) and, if present, NVIDIA NVML. The OpenMP binary itself
 does not report joules.
 
@@ -13,8 +13,7 @@ On Windows, from the RandomForest directory:
 
 Writes openmp_scaling.csv and raw logs under openmp_scaling_logs/.
 cpu_j / cpu_edp are the package-counter figures for the CPU run.
-edp is the monitor total (CPU + GPU) times wall time, same definition
-used by benchmark_comparison.py.
+edp is the monitor total (CPU + GPU) times wall time.
 """
 
 import argparse
