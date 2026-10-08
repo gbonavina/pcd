@@ -47,7 +47,7 @@ RandomForest/
 A pasta `nao_utilizados/` guarda o que foi desenvolvido no projeto mas não aparece
 no artigo: as versões sequencial (`src/`) e CUDA (`cuda/`), os benchmarks
 comparativos Seq/OpenMP/CUDA, a base `sales_data.csv`, saídas avulsas de árvores
-em DOT e os arquivos de exemplo do template SBC. Veja `nao_utilizados/README.md`.
+em DOT e os arquivos de exemplo do template SBC. Veja `nao_utilizados/LEIA-ME.md`.
 
 ## Reprodução
 

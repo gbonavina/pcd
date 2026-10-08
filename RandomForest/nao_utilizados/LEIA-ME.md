@@ -20,5 +20,4 @@ assim por diante.
 | `report/README.md`, `report/template/sbc-template.*`, `fig*.jpg`, `table.jpg` | Exemplo e instruções do template SBC | Só o estilo (`sbc-template.sty`, `sbc.bst`) é usado |
 | `report/template/final_page-*.png`, `page_view-*.png` | Capturas de páginas de versões anteriores do PDF | Não são figuras do artigo |
 
-O código aqui não é mantido: `python/benchmark_comparison.py` e o `Makefile` ainda
-apontam para os caminhos antigos.
+O código aqui não é mantido nem foi testado depois da mudança de pasta.
