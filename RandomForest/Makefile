@@ -14,8 +14,10 @@ experimentos: all
 tune: all
 	$(PYTHON) python/tune_params.py --threads 16 --export-csv python/sweep.csv
 
+# Figuras pgfplots (speedup e EDP) e depois o artigo.
 artigo:
-	cd report/template && latexmk -pdf artigo.tex
+	cd report/template/figuras && lualatex -interaction=nonstopmode speedup.tex && lualatex -interaction=nonstopmode edp.tex
+	cd report/template && latexmk -lualatex artigo.tex
 
 clean:
 	$(MAKE) -C openmp clean

@@ -29,7 +29,7 @@ RandomForest/
 ├── run_openmp_experiments.py   Varredura 1, 2, 4, 8, 16 e 32 threads com energia
 ├── run_openmp_experiments.sh   Atalho (bash)
 ├── run_openmp_experiments.bat  Atalho (Windows)
-├── openmp_scaling.csv          Dados das Tabelas 2 a 4 e da Figura 2 do artigo
+├── openmp_scaling.csv          Dados das Tabelas 2 a 4 e das Figuras 2 e 3
 ├── report/
 │   ├── LICENSE                 Licença do template SBC
 │   └── template/
@@ -39,7 +39,8 @@ RandomForest/
 │       ├── sbc-template.sty, sbc.bst, caption2.sty   Estilo SBC
 │       └── figuras/
 │           ├── arvore_iris.dot/.pdf   Figura 1
-│           └── speedup.tex/.pdf       Figura 2 (pgfplots)
+│           ├── speedup.tex/.pdf       Figura 2 (pgfplots)
+│           └── edp.tex/.pdf           Figura 3 (pgfplots)
 ├── Makefile                    Atalhos para compilar, rodar e gerar o PDF
 └── nao_utilizados/             Material que não entrou no artigo final
 ```
@@ -66,7 +67,8 @@ python run_openmp_experiments.py
 python python/tune_params.py --threads 16 --export-csv python/sweep.csv
 
 # 4. Compilar o artigo
-cd report/template && latexmk -pdf artigo.tex
+cd report/template/figuras && lualatex speedup.tex && lualatex edp.tex
+cd .. && latexmk -lualatex artigo.tex
 ```
 
 O `Makefile` da raiz expõe os mesmos passos: `make`, `make experimentos`,

@@ -11,13 +11,16 @@
 \title{Explorando o Paralelismo em Random Forests: Desempenho,\\
 Fidelidade Preditiva e Eficiência Energética com OpenMP}
 
-% E-mails, na ordem dos autores. Substituir cada traço.
 \author{Gabriel L. Bonavina\inst{1}, Estevan T. Santos\inst{1},\\
 Marcelo F. Ohno\inst{1}, Vinicius M. Goulart\inst{1}}
 
-\address{Universidade Federal de São Paulo (Unifesp)\\[4pt]
-  \footnotesize
-  e-mail: \{gabriel.bonavina, estevan.santos, marcelo.ohno, vmgoulart07\}@unifesp.br}
+% Mesmo efeito do \email do template, com os e-mails em 2 colunas.
+\address{Universidade Federal de São Paulo (Unifesp)\\\mbox{}\\[-6pt]
+  \footnotesize\ttfamily
+  \begin{tabular}{@{}l@{\hspace{2.5em}}l@{}}
+    gabriel.bonavina@unifesp.br & estevan.santos@unifesp.br \\
+    marcelo.ohno@unifesp.br     & vmgoulart07@unifesp.br
+  \end{tabular}}
 
 \begin{document}
 
@@ -33,7 +36,7 @@ to 32 threads, on a 6-core, 12-thread Intel Core i7-9750H. Training speedup reac
 7.32$\times$ on Covertype and 7.19$\times$ on Letter Recognition, and the CPU
 package energy-delay product falls by up to 20.8$\times$. On the small sets the
 curve peaks earlier and declines once the thread count exceeds the available work.
-Test accuracy stays within 0.15 percentage points of the single-thread result.
+Test accuracy stays within 0.07 percentage points of the single-thread result.
 \end{abstract}
 
 \begin{resumo}
@@ -47,7 +50,7 @@ Intel Core i7-9750H de 6 núcleos e 12 threads. O treino acelera até 7{,}32$\ti
 Covertype e 7{,}19$\times$ no Letter Recognition, e o produto energia-atraso do
 pacote da CPU cai até 20{,}8$\times$. Nas bases pequenas a curva atinge o máximo
 antes e recua quando o número de threads excede o trabalho disponível. A
-acurácia de teste permanece a até 0{,}15 ponto percentual do resultado com uma
+acurácia de teste permanece a até 0{,}07 ponto percentual do resultado com uma
 thread.
 \end{resumo}
 
@@ -116,7 +119,7 @@ Na inferência, a amostra percorre cada árvore até uma folha, definindo a pred
 voto majoritário simples. Como as árvores não trocam dados durante o crescimento, o laço
 de indução é embaraçosamente paralelo. A reprodutibilidade decorre do gerador xorshift32
 com semente privativa $s_t = s + t \cdot \texttt{0x9E3779B9} + 1$ para a árvore $t$, com
-$s = 42$ também na partição holdout (80\% treino e 20\% teste).
+$s = 42$ também na partição holdout estratificada (80\% treino e 20\% teste).
 
 \section{Paralelização com OpenMP}
 \label{sec:impl}
@@ -196,11 +199,13 @@ sistema operacional.
 Os conjuntos de dados são Iris~\cite{fisher:1936}, Wisconsin Diagnostic Breast Cancer
 (WDBC)~\cite{street:1993}, Letter Recognition~\cite{frey:1991} e Forest
 Covertype~\cite{blackard:1999}. Os hiperparâmetros de Iris, WDBC e Letter foram
-calibrados por busca em grade, selecionando a configuração mais concisa cuja
-acurácia média de teste permaneceu a até 0{,}0025 da melhor observada. O Covertype
-foi fixado em 50 árvores, profundidade 30 e $m = 18$. A Tabela~\ref{tab:config}
-resume as dimensões, o holdout (80\% treino e 20\% teste) e a acurácia de teste
-medida com uma thread.
+calibrados por busca em grade, com a acurácia de teste média sobre várias sementes
+de partição. Em Iris e WDBC, entre as configurações a até 0{,}0025 da melhor
+acurácia média, escolheu-se a de mais árvores e, entre essas, a de menor tempo de
+treino. No Letter adotou-se a configuração de maior acurácia média da grade. O
+Covertype foi fixado em 50 árvores, profundidade 30 e $m = 18$. A
+Tabela~\ref{tab:config} resume as dimensões, o holdout estratificado por classe
+(80\% treino e 20\% teste) e a acurácia de teste medida com uma thread.
 
 \begin{table}[H]
 \centering
@@ -240,8 +245,9 @@ no início e no fim do processo; $E$ é a diferença, convertida para joules. A 
 permanece num domínio próprio do RAPL e não entra nessa diferença.
 
 A potência média do pacote é $\bar{P} = E/\Delta t$, em watts. É a energia do
-encapsulamento dividida pelo intervalo de parede da execução completa, que inclui a
-leitura do arquivo, o treino e a inferência. Não é a potência instantânea de um
+encapsulamento dividida pelo intervalo de parede da execução completa, medido do
+lançamento ao término do processo, que inclui a leitura do arquivo, a partição, o
+treino e a inferência. Não é a potência instantânea de um
 núcleo, nem o consumo medido na tomada. Com uma thread o package já mantém ligados
 a cache de último nível e o controlador de memória. Threads adicionais acordam
 outros núcleos e elevam $\bar{P}$, mas não na proporção de $p$: a parte
@@ -250,7 +256,9 @@ pelo \textit{hyper-threading}, divide unidades de execução que já estão liga
 O Produto Energia-Atraso é
 $\mathrm{EDP} = E \cdot \Delta t$, e o speedup correspondente é
 $S_{\mathrm{EDP}} = E_1 \Delta t_1 / E_p \Delta t_p$. Os tempos de treino e de
-predição vêm dos cronômetros internos do programa. Como o contador RAPL
+predição vêm dos cronômetros internos do programa. O tempo de predição cobre a
+inferência sobre os conjuntos de treino e de teste, usada no cálculo das duas
+acurácias. Como o contador RAPL
 atualiza-se na escala de dezenas de milissegundos, execuções inferiores a cerca de
 0{,}5\,s (Iris, e parte do WDBC) ficam no piso de sensibilidade do medidor; as
 conclusões energéticas apoiam-se em Letter e Covertype.
@@ -290,16 +298,21 @@ Cover  & $t$ & 510{,}8 & 267{,}5 & 138{,}7 & 95{,}16 & 70{,}79 & 69{,}74 \\
 \end{tabular}
 \end{table}
 
-O tempo de parede do processo, que inclui a leitura do arquivo, acompanha o treino
-nas bases grandes: no Covertype, de 530{,}7\,s para 71{,}4\,s (7{,}43$\times$ em
-32 threads); no Letter, de 21{,}88\,s para 3{,}00\,s (7{,}31$\times$).
+O intervalo do processo inteiro, o mesmo $\Delta t$ usado em $\bar{P}$ e no EDP,
+acelera menos que o treino porque inclui a leitura do arquivo e a partição
+holdout, que são sequenciais (entre 23 e 26\,s no Covertype, com qualquer número
+de threads). No Covertype ele passa de 557{,}0\,s para 94{,}9\,s (5{,}87$\times$ em
+32 threads); no Letter, de 22{,}27\,s para 3{,}35\,s (6{,}64$\times$).
 
 Na predição, Letter passa de 2{,}38\,s para 0{,}28\,s (8{,}43$\times$ em 32
 threads) e Covertype de 19{,}91\,s para 1{,}70\,s (11{,}75$\times$). A
 Tabela~\ref{tab:pred} detalha essa etapa. O ganho supera o do treino porque o
 custo por amostra é uniforme e o escalonamento estático reparte linhas somente de
-leitura. No Iris e no WDBC a predição dura entre 0 e 13\,ms, na resolução do
-cronômetro interno, e esses pontos não entram na curva.
+leitura. No Covertype o speedup de 2 threads (2{,}51$\times$) já fica acima do
+linear; com uma execução por ponto, parte desse excedente pode vir de variação na
+execução de referência, e não do paralelismo. No Iris e no WDBC a predição dura
+entre 0 e 13\,ms, na resolução do cronômetro interno, e esses pontos não entram na
+curva.
 
 \begin{figure}[H]
 \centering
@@ -313,8 +326,8 @@ de meio segundo, atingem o máximo antes e recuam em 32 threads.}
 
 \begin{table}[H]
 \centering
-\caption{Tempo de predição (s) e speedup sobre a execução com uma thread, nas
-bases em que o cronômetro resolve a etapa.}
+\caption{Tempo de predição (s), sobre os conjuntos de treino e de teste, e speedup
+sobre a execução com uma thread, nas bases em que o cronômetro resolve a etapa.}
 \label{tab:pred}
 \footnotesize
 \setlength{\tabcolsep}{4.5pt}
@@ -330,25 +343,26 @@ Cover  & $t$ & 19{,}91 & 7{,}94 & 4{,}30 & 2{,}53 & 1{,}84 & 1{,}70 \\
 \end{tabular}
 \end{table}
 
-A Tabela~\ref{tab:energia} reúne a energia do pacote e o speedup de EDP. No
+A Tabela~\ref{tab:energia} reúne a energia do pacote e o speedup de EDP, e a
+Figura~\ref{fig:edp} compara os dois fatores. No
 Letter, a energia cai de 53{,}1\,J para 24{,}5\,J em 32 threads e o EDP melhora
 14{,}4$\times$. No Covertype, a energia cai de 2{.}085\,J para 588\,J e o EDP
 melhora 20{,}8$\times$. A potência média do pacote, $\bar{P} = E/\Delta t$, sobe
 menos do que o tempo cai: no Letter, de 2{,}38\,W com uma thread para 7{,}31\,W
 com 32; no Covertype, de 3{,}74\,W para 6{,}20\,W. O encurtamento da execução,
 somado a esse aumento moderado da energia por segundo do chip, reduz ao mesmo
-tempo a energia total e o atraso. No Iris e no WDBC
-os joules medidos oscilam na casa de 0{,}2\,J a 4\,J e o speedup de EDP não é
-monótono; esses registros permanecem no piso do RAPL. A acurácia de teste não
+tempo a energia total e o atraso. A acurácia de teste não
 depende do número de threads de forma material. Iris e WDBC repetem 0{,}9333 e
 0{,}9912 em todos os pontos. Letter permanece no intervalo 0{,}9613--0{,}9627 e
-Covertype no intervalo 0{,}9599--0{,}9603, isto é, a menos de 0{,}15 ponto
+Covertype no intervalo 0{,}9599--0{,}9603, isto é, a até 0{,}07 ponto
 percentual do valor com uma thread.
 
 \begin{table}[H]
 \centering
 \caption{Energia do pacote da CPU (J) e speedup de EDP sobre a execução com uma
-thread. Letter e Covertype estão acima do piso de resolução do RAPL.}
+thread. Letter e Covertype estão acima do piso de resolução do RAPL. Iris (0{,}15
+a 0{,}59\,J) e WDBC (1{,}4 a 4{,}0\,J) ficam no piso, com $S_{\mathrm{EDP}}$ não
+monótono, e não são listados.}
 \label{tab:energia}
 \footnotesize
 \setlength{\tabcolsep}{4.2pt}
@@ -364,6 +378,15 @@ Cover  & $E$ & 2{.}085 & 1{.}396 & 900 & 768 & 623 & 588 \\
 \end{tabular}
 \end{table}
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.72\textwidth]{figuras/edp.pdf}
+\caption{Redução da energia do pacote ($E_1/E_p$, em cinza) e speedup de EDP (em
+preto) sobre a execução com uma thread, em Letter e Covertype. O EDP cresce mais
+que a energia porque multiplica a redução de energia pela redução de tempo.}
+\label{fig:edp}
+\end{figure}
+
 \section{Discussão}
 \label{sec:disc}
 
@@ -371,7 +394,7 @@ O treinamento escala enquanto há árvores independentes e núcleos capazes de
 ordená-las ao mesmo tempo. Até 4 threads, Letter e Covertype ficam próximos da
 reta linear (eficiência de 0{,}95 e 0{,}92): quatro threads ocupam quatro dos seis
 núcleos físicos, cada uma com o núcleo inteiro. De 4 para 8 threads a eficiência
-cai para 0{,}75 no Letter e 0{,}67 no Covertype. Oito threads já passam dos seis
+cai para 0{,}74 no Letter e 0{,}67 no Covertype. Oito threads já passam dos seis
 núcleos, e pelo menos dois deles executam duas threads por \textit{hyper-threading},
 dividindo unidades de execução e as caches L1 e L2. De 8 para 16 threads o ganho
 continua, de 5{,}37$\times$ para 7{,}22$\times$ no Covertype, embora 16 já ultrapasse
