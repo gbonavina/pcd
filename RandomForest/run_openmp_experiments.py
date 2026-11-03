@@ -3,25 +3,38 @@
 Strong-scaling sweep for the OpenMP Random Forest, with CPU energy.
 
 Datasets and hyperparameters are the ones reported in the article
-(report/template/artigo.tex, Table 1). Energy comes from python/measure_energy.py: Intel RAPL through Windows PDH
-(package counter) and, if present, NVIDIA NVML. The OpenMP binary itself
+(report/template/artigo.tex, Table 1). Energy comes from python/measure_energy.py:
+Intel RAPL package counter read through Windows PDH. The OpenMP binary itself
 does not report joules.
+
+Protocol:
+  - each dataset runs N blocks (REPEATS); a block runs every thread count once,
+    in an order shuffled with a recorded seed (--order-seed);
+  - one discarded warmup run per dataset, before its first block;
+  - idle power is measured again before each dataset;
+  - no thread affinity is set (libgomp on MinGW does not support OMP_PLACES /
+    OMP_PROC_BIND); the Windows scheduler places the threads.
 
 On Windows, from the RandomForest directory:
 
     python run_openmp_experiments.py
 
-Writes openmp_scaling.csv and raw logs under openmp_scaling_logs/.
-cpu_j / cpu_edp are the package-counter figures for the CPU run.
-edp is the monitor total (CPU + GPU) times wall time.
+Writes one line per measured run to openmp_runs.csv and the per-configuration
+statistics (mean, median, standard deviation) to openmp_scaling.csv.
+To recompute the statistics from an existing openmp_runs.csv:
+
+    python run_openmp_experiments.py --aggregate-only
 """
 
 import argparse
 import csv
 import os
+import random
+import statistics
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -29,54 +42,41 @@ sys.path.insert(0, str(ROOT / "python"))
 
 from measure_energy import EnergyMonitor  # noqa: E402
 
-THREADS = [1, 2, 4, 8, 16, 32]
+THREADS = [1, 2, 4, 8, 12, 16, 32]
 
-# name, data, target (None = last column), trees, max_depth, min_samples, mtry
+# name, data, target (None = last column), trees, max_depth, min_samples, mtry, repeats
 DATASETS = [
-    ("breast-cancer", ROOT / "data" / "breast-cancer.csv", "diagnosis", 300, 6, 5, 3),
-    ("covtype", ROOT / "data" / "covtype.csv", "Cover_Type", 50, 30, 2, 18),
-    ("iris", ROOT / "data" / "iris.csv", None, 300, 12, 5, 2),
-    ("letter-recognition", ROOT / "data" / "letter-recognition.data", "0", 300, 30, 2, 4),
+    ("iris", ROOT / "data" / "iris.csv", None, 300, 12, 5, 2, 30),
+    ("breast-cancer", ROOT / "data" / "breast-cancer.csv", "diagnosis", 300, 6, 5, 3, 30),
+    ("letter-recognition", ROOT / "data" / "letter-recognition.data", "0", 300, 30, 2, 4, 10),
+    ("covtype", ROOT / "data" / "covtype.csv", "Cover_Type", 50, 30, 2, 18, 5),
 ]
 
+RUNS_PATH = ROOT / "openmp_runs.csv"
 OUT_PATH = ROOT / "openmp_scaling.csv"
-LOG_DIR = ROOT / "openmp_scaling_logs"
 
-COLUMNS = [
+RUN_COLUMNS = [
+    "run_index",
+    "start_time",
     "dataset",
+    "block",
+    "pos_in_block",
+    "order_seed",
     "threads",
-    "train_samples",
-    "test_samples",
-    "features",
-    "classes",
-    "trees",
-    "mtry",
-    "max_depth",
-    "min_samples",
-    "seed",
     "train_accuracy",
     "test_accuracy",
     "train_wall_s",
     "predict_wall_s",
-    "wall_s",
-    "speedup_train",
-    "speedup_predict",
-    "speedup_wall",
     "measure_dt_s",
     "cpu_j",
-    "gpu_j",
-    "total_j",
     "dynamic_j",
     "cpu_power_w",
-    "avg_power_w",
-    "edp",
     "cpu_edp",
-    "dynamic_edp",
-    "speedup_cpu_energy",
-    "speedup_edp",
-    "speedup_cpu_edp",
     "idle_power_w",
 ]
+
+# Metrics summarized per (dataset, threads).
+METRICS = ["train_wall_s", "predict_wall_s", "measure_dt_s", "cpu_j", "cpu_power_w", "cpu_edp"]
 
 
 def find_exe() -> Path:
@@ -92,13 +92,15 @@ def find_exe() -> Path:
 
 def build() -> None:
     print("Building openmp/rf ...")
-    try:
-        result = subprocess.run(["make", "-C", str(ROOT / "openmp")])
-    except FileNotFoundError:
-        print("make was not found; using an existing binary if one is present.")
+    for make in ("make", "mingw32-make"):
+        try:
+            result = subprocess.run([make, "-C", str(ROOT / "openmp")])
+        except FileNotFoundError:
+            continue
+        if result.returncode != 0:
+            print(f"{make} failed; using an existing binary if one is present.")
         return
-    if result.returncode != 0:
-        print("make failed; using an existing binary if one is present.")
+    print("make was not found; using an existing binary if one is present.")
 
 
 def parse_stdout(text: str) -> dict:
@@ -118,215 +120,227 @@ def fnum(text, default=0.0) -> float:
         return default
 
 
-def ratio(base: float, value: float) -> float:
-    if base > 0.0 and value > 0.0:
-        return base / value
-    return 0.0
-
-
-def average(values) -> float:
-    vals = list(values)
-    return sum(vals) / len(vals) if vals else 0.0
-
-
-def run_case(monitor, exe, spec, threads, repeats, warmup, idle_power_w):
-    name, data, target, trees, depth, min_samples, mtry = spec
+def command(exe, spec):
+    name, data, target, trees, depth, min_samples, mtry, _ = spec
     if not data.is_file():
         sys.exit(f"dataset file not found: {data}")
-
     cmd = [
         str(exe),
-        "--data",
-        str(data),
-        "--trees",
-        str(trees),
-        "--max-depth",
-        str(depth),
-        "--min-samples",
-        str(min_samples),
-        "--mtry",
-        str(mtry),
-        "--test-frac",
-        "0.2",
-        "--seed",
-        "42",
+        "--data", str(data),
+        "--trees", str(trees),
+        "--max-depth", str(depth),
+        "--min-samples", str(min_samples),
+        "--mtry", str(mtry),
+        "--test-frac", "0.2",
+        "--seed", "42",
     ]
     if target is not None:
         cmd.extend(["--target", target])
+    return cmd
 
+
+def run_once(monitor, cmd, name, threads, idle_power_w):
     os.environ["OMP_NUM_THREADS"] = str(threads)
     os.environ["OMP_DYNAMIC"] = "false"
-
-    print(f"==> {name}  OMP_NUM_THREADS={threads}")
-
-    if warmup:
-        warm = monitor.measure_command(cmd, idle_power_w=idle_power_w)
-        if warm.returncode != 0:
-            sys.stderr.write(warm.stderr or "")
-            sys.exit(f"{name} warmup failed (exit {warm.returncode})")
-        time.sleep(1.0)
-
-    measurements = []
-    for i in range(repeats):
-        measured = monitor.measure_command(cmd, idle_power_w=idle_power_w)
-        if measured.returncode != 0:
-            sys.stderr.write(measured.stderr or "")
-            sys.exit(f"{name} threads={threads} failed (exit {measured.returncode})")
-        measurements.append(measured)
-        if i < repeats - 1:
-            time.sleep(1.0)
-
-    parsed_runs = [parse_stdout(m.stdout or "") for m in measurements]
-    parsed = parsed_runs[-1]
-    train_s = average(fnum(p.get("train_wall_s")) for p in parsed_runs)
-    predict_s = average(fnum(p.get("predict_wall_s")) for p in parsed_runs)
-    wall_s = average(fnum(p.get("wall_s")) for p in parsed_runs)
-
-    dt = average(m.dt for m in measurements)
-    cpu_j = average(m.cpu_j for m in measurements)
-    gpu_j = average(m.gpu_j for m in measurements)
-    total_j = average(m.total_j for m in measurements)
-    dynamic_j = average(m.dynamic_j for m in measurements)
-    cpu_power_w = average(m.cpu_power_w for m in measurements)
-    avg_power_w = average(m.avg_power_w for m in measurements)
-    edp = average(m.edp for m in measurements)
-    dynamic_edp = average(m.dynamic_edp for m in measurements)
-    cpu_edp = cpu_j * dt
-
-    log_path = LOG_DIR / f"{name}_t{threads}.log"
-    log_body = measurements[-1].stdout or ""
-    if measurements[-1].stderr:
-        log_body += "\n" + measurements[-1].stderr
-    log_body += (
-        f"\n# energy cpu_j={cpu_j:.6f} gpu_j={gpu_j:.6f} total_j={total_j:.6f} "
-        f"dynamic_j={dynamic_j:.6f} cpu_power_w={cpu_power_w:.6f} "
-        f"edp={edp:.6f} cpu_edp={cpu_edp:.6f} dynamic_edp={dynamic_edp:.6f} "
-        f"measure_dt_s={dt:.6f} repeats={repeats}\n"
-    )
-    log_path.write_text(log_body, encoding="utf-8")
-
-    print(
-        f"    wall={wall_s:.4f}s  cpu={cpu_j:.4f} J  "
-        f"power={cpu_power_w:.2f} W  cpu_edp={cpu_edp:.4f} J*s"
-    )
-
-    return {
-        "dataset": name,
-        "threads": parsed.get("threads", threads),
-        "train_samples": parsed.get("train", ""),
-        "test_samples": parsed.get("test", ""),
-        "features": parsed.get("features", ""),
-        "classes": parsed.get("classes", ""),
-        "trees": parsed.get("trees", ""),
-        "mtry": parsed.get("mtry", ""),
-        "max_depth": parsed.get("max_depth", ""),
-        "min_samples": parsed.get("min_samples", ""),
-        "seed": parsed.get("seed", ""),
-        "train_accuracy": parsed.get("train_accuracy", ""),
-        "test_accuracy": parsed.get("test_accuracy", ""),
-        "train_wall_s": f"{train_s:.6f}",
-        "predict_wall_s": f"{predict_s:.6f}",
-        "wall_s": f"{wall_s:.6f}",
-        "measure_dt_s": f"{dt:.6f}",
-        "cpu_j": f"{cpu_j:.6f}",
-        "gpu_j": f"{gpu_j:.6f}",
-        "total_j": f"{total_j:.6f}",
-        "dynamic_j": f"{dynamic_j:.6f}",
-        "cpu_power_w": f"{cpu_power_w:.6f}",
-        "avg_power_w": f"{avg_power_w:.6f}",
-        "edp": f"{edp:.6f}",
-        "cpu_edp": f"{cpu_edp:.6f}",
-        "dynamic_edp": f"{dynamic_edp:.6f}",
-        "idle_power_w": f"{idle_power_w:.6f}",
-        "_train_s": train_s,
-        "_predict_s": predict_s,
-        "_wall_s": wall_s,
-        "_cpu_j": cpu_j,
-        "_edp": edp,
-        "_cpu_edp": cpu_edp,
-    }
+    measured = monitor.measure_command(cmd, idle_power_w=idle_power_w)
+    if measured.returncode != 0:
+        sys.stderr.write(measured.stderr or "")
+        sys.exit(f"{name} threads={threads} failed (exit {measured.returncode})")
+    return measured, parse_stdout(measured.stdout or "")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--repeats",
-        type=int,
-        default=1,
-        help="Measured repetitions averaged into each CSV row (default: 1).",
-    )
-    parser.add_argument(
-        "--warmup",
-        action="store_true",
-        help="Discard one preliminary run before measuring.",
-    )
-    parser.add_argument(
-        "--idle-seconds",
-        type=float,
-        default=3.0,
-        help="Seconds used to sample idle power before the sweep (default: 3).",
-    )
-    args = parser.parse_args()
-    if args.repeats < 1:
-        sys.exit("--repeats must be >= 1")
-
-    build()
+def run_sweep(args) -> None:
     exe = find_exe()
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    names = [d[0] for d in DATASETS]
+    unknown = [n for n in (args.datasets or []) if n not in names]
+    if unknown:
+        sys.exit(f"unknown dataset(s): {', '.join(unknown)}; choose from {', '.join(names)}")
+    selected = [d for d in DATASETS if not args.datasets or d[0] in args.datasets]
 
-    baselines = {}
-    with EnergyMonitor() as monitor, OUT_PATH.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=COLUMNS, extrasaction="ignore")
-        writer.writeheader()
+    existing = []
+    if RUNS_PATH.is_file() and RUNS_PATH.stat().st_size > 0:
+        with RUNS_PATH.open(newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            if reader.fieldnames != RUN_COLUMNS:
+                sys.exit(f"{RUNS_PATH} has a different header; move it away first")
+            existing = list(reader)
+    if existing and not (args.append or args.overwrite):
+        sys.exit(
+            f"{RUNS_PATH} already has {len(existing)} runs. "
+            "Use --append to add runs or --overwrite to replace them."
+        )
+    append = args.append and RUNS_PATH.is_file() and RUNS_PATH.stat().st_size > 0
+    mode = "a" if append else "w"
+    run_index = len(existing) if append else 0
+    # In append mode, block numbers continue per dataset so every block gets
+    # its own shuffled order and (dataset, block) stays unique.
+    first_block = {}
+    if append:
+        for r in existing:
+            first_block[r["dataset"]] = max(first_block.get(r["dataset"], -1), int(r["block"])) + 1
+
+    with EnergyMonitor(use_gpu=False) as monitor, RUNS_PATH.open(mode, newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=RUN_COLUMNS)
+        if mode == "w":
+            writer.writeheader()
         handle.flush()
 
-        if monitor.cpu_active:
-            print("RAPL package counter is active.")
-        else:
+        if not monitor.cpu_active:
             print(
                 "RAPL/PDH counter is not active. Energy columns will be 0. "
                 "Run this on Windows where the Energy Meter counter is available."
             )
-        if monitor.nvml_active:
-            print("NVML is active; gpu_j is included in total_j and edp.")
 
-        print(f"Measuring idle power for {args.idle_seconds:.1f} s ...")
-        idle_power_w = monitor.measure_idle_power(duration_s=args.idle_seconds)
-        print(f"Idle power: {idle_power_w:.2f} W")
-
-        for spec in DATASETS:
+        for spec in selected:
             name = spec[0]
-            for threads in THREADS:
-                row = run_case(
-                    monitor,
-                    exe,
-                    spec,
-                    threads,
-                    args.repeats,
-                    args.warmup,
-                    idle_power_w,
-                )
-                if threads == 1:
-                    baselines[name] = row
-                    row["speedup_train"] = "1.0000"
-                    row["speedup_predict"] = "1.0000"
-                    row["speedup_wall"] = "1.0000"
-                    row["speedup_cpu_energy"] = "1.0000"
-                    row["speedup_edp"] = "1.0000"
-                    row["speedup_cpu_edp"] = "1.0000"
-                else:
-                    base = baselines[name]
-                    row["speedup_train"] = f"{ratio(base['_train_s'], row['_train_s']):.4f}"
-                    row["speedup_predict"] = f"{ratio(base['_predict_s'], row['_predict_s']):.4f}"
-                    row["speedup_wall"] = f"{ratio(base['_wall_s'], row['_wall_s']):.4f}"
-                    row["speedup_cpu_energy"] = f"{ratio(base['_cpu_j'], row['_cpu_j']):.4f}"
-                    row["speedup_edp"] = f"{ratio(base['_edp'], row['_edp']):.4f}"
-                    row["speedup_cpu_edp"] = f"{ratio(base['_cpu_edp'], row['_cpu_edp']):.4f}"
+            repeats = args.repeats or spec[7]
+            cmd = command(exe, spec)
 
-                writer.writerow(row)
-                handle.flush()
+            time.sleep(args.pause)
+            idle_power_w = monitor.measure_idle_power(duration_s=args.idle_seconds)
+            print(f"==> {name}: {repeats} blocks of {THREADS}, idle {idle_power_w:.2f} W")
 
-    print(f"Wrote {OUT_PATH}")
+            # Warmup: loads the file into the OS cache; discarded.
+            run_once(monitor, cmd, name, max(THREADS), idle_power_w)
+
+            start_block = first_block.get(name, 0)
+            for block in range(start_block, start_block + repeats):
+                order = list(THREADS)
+                random.Random(f"{args.order_seed}-{name}-{block}").shuffle(order)
+                for pos, threads in enumerate(order):
+                    time.sleep(args.pause)
+                    start = datetime.now().isoformat(timespec="seconds")
+                    m, parsed = run_once(monitor, cmd, name, threads, idle_power_w)
+                    writer.writerow({
+                        "run_index": run_index,
+                        "start_time": start,
+                        "dataset": name,
+                        "block": block,
+                        "pos_in_block": pos,
+                        "order_seed": args.order_seed,
+                        "threads": threads,
+                        "train_accuracy": parsed.get("train_accuracy", ""),
+                        "test_accuracy": parsed.get("test_accuracy", ""),
+                        "train_wall_s": parsed.get("train_wall_s", ""),
+                        "predict_wall_s": parsed.get("predict_wall_s", ""),
+                        "measure_dt_s": f"{m.dt:.6f}",
+                        "cpu_j": f"{m.cpu_j:.6f}",
+                        "dynamic_j": f"{m.dynamic_j:.6f}",
+                        "cpu_power_w": f"{m.cpu_power_w:.6f}",
+                        "cpu_edp": f"{m.cpu_j * m.dt:.6f}",
+                        "idle_power_w": f"{idle_power_w:.6f}",
+                    })
+                    handle.flush()
+                    run_index += 1
+                    print(
+                        f"    block {block} p={threads:2d}  train={fnum(parsed.get('train_wall_s')):.4f}s  "
+                        f"dt={m.dt:.3f}s  cpu={m.cpu_j:.2f} J"
+                    )
+
+
+def summarize(values):
+    n = len(values)
+    mean = statistics.fmean(values)
+    std = statistics.stdev(values) if n > 1 else 0.0
+    return {
+        "mean": mean,
+        "median": statistics.median(values),
+        "std": std,
+        "cv": std / mean if mean > 0 else 0.0,
+        "min": min(values),
+        "max": max(values),
+    }
+
+
+def aggregate() -> None:
+    with RUNS_PATH.open(newline="", encoding="utf-8") as fh:
+        runs = list(csv.DictReader(fh))
+    if not runs:
+        sys.exit(f"no runs in {RUNS_PATH}")
+
+    groups = {}
+    for r in runs:
+        groups.setdefault((r["dataset"], int(r["threads"])), []).append(r)
+
+    columns = ["dataset", "threads", "n", "test_accuracy"]
+    for metric in METRICS:
+        columns += [f"{metric}_{s}" for s in ("mean", "median", "std", "cv", "min", "max")]
+    columns += [
+        "speedup_train", "speedup_train_min", "speedup_train_max",
+        "speedup_predict", "speedup_predict_min", "speedup_predict_max",
+        "speedup_wall", "speedup_cpu_energy", "speedup_cpu_edp",
+    ]
+
+    rows = []
+    for (name, threads), group in sorted(groups.items()):
+        row = {"dataset": name, "threads": threads, "n": len(group)}
+        accs = sorted({g["test_accuracy"] for g in group})
+        row["test_accuracy"] = "|".join(accs)
+        for metric in METRICS:
+            for key, value in summarize([fnum(g[metric]) for g in group]).items():
+                row[f"{metric}_{key}"] = value
+        rows.append(row)
+
+    base = {r["dataset"]: r for r in rows if r["threads"] == 1}
+    for row in rows:
+        b = base.get(row["dataset"])
+        if b is None:
+            continue
+        group = groups[(row["dataset"], row["threads"])]
+        for stage, metric in (("train", "train_wall_s"), ("predict", "predict_wall_s")):
+            t1 = b[f"{metric}_median"]
+            tp = row[f"{metric}_median"]
+            row[f"speedup_{stage}"] = t1 / tp if tp > 0 else 0.0
+            # Per-run speedup against the single-thread median: its range
+            # shows whether a gain holds in every run.
+            per_run = [t1 / fnum(g[metric]) for g in group if fnum(g[metric]) > 0]
+            row[f"speedup_{stage}_min"] = min(per_run) if per_run else 0.0
+            row[f"speedup_{stage}_max"] = max(per_run) if per_run else 0.0
+        for col, metric in (
+            ("speedup_wall", "measure_dt_s"),
+            ("speedup_cpu_energy", "cpu_j"),
+            ("speedup_cpu_edp", "cpu_edp"),
+        ):
+            v = row[f"{metric}_median"]
+            row[col] = b[f"{metric}_median"] / v if v > 0 else 0.0
+
+    with OUT_PATH.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.DictWriter(fh, fieldnames=columns)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({
+                k: (f"{v:.6f}" if isinstance(v, float) else v) for k, v in row.items()
+            })
+    print(f"Wrote {OUT_PATH} ({len(rows)} configurations, {len(runs)} runs)")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--repeats", type=int, default=0,
+                        help="Blocks per dataset; 0 uses the per-dataset value in DATASETS.")
+    parser.add_argument("--datasets", nargs="*", help="Run only these datasets.")
+    parser.add_argument("--order-seed", type=int, default=20261103,
+                        help="Seed that shuffles the thread order inside each block.")
+    parser.add_argument("--pause", type=float, default=1.0,
+                        help="Seconds of rest before each run (default: 1).")
+    parser.add_argument("--idle-seconds", type=float, default=10.0,
+                        help="Seconds used to sample idle power before each dataset (default: 10).")
+    parser.add_argument("--append", action="store_true",
+                        help="Append to openmp_runs.csv; block numbers continue per dataset.")
+    parser.add_argument("--overwrite", action="store_true",
+                        help="Replace an existing openmp_runs.csv.")
+    parser.add_argument("--aggregate-only", action="store_true",
+                        help="Only recompute openmp_scaling.csv from openmp_runs.csv.")
+    parser.add_argument("--no-build", action="store_true", help="Skip make.")
+    args = parser.parse_args()
+    if args.repeats < 0:
+        sys.exit("--repeats must be >= 0")
+
+    if not args.aggregate_only:
+        if not args.no_build:
+            build()
+        run_sweep(args)
+    aggregate()
 
 
 if __name__ == "__main__":

@@ -47,7 +47,8 @@ class EnergyMonitor:
     (Intel RAPL via Windows PDH) e GPUs NVIDIA (via NVML).
     """
 
-    def __init__(self):
+    def __init__(self, use_gpu: bool = True):
+        self.use_gpu = use_gpu
         self.pdh = None
         self.h_query = ctypes.c_void_p()
         self.h_cpu_counter = ctypes.c_void_p()
@@ -80,6 +81,8 @@ class EnergyMonitor:
             self.cpu_active = False
 
         # 2. Inicializacao da NVIDIA NVML
+        if not self.use_gpu:
+            return
         try:
             self.nvml = ctypes.CDLL("nvml.dll")
             if self.nvml.nvmlInit_v2() == 0:
@@ -98,7 +101,9 @@ class EnergyMonitor:
             self.h_cpu_counter, 0x00000200, None, ctypes.byref(val)
         )
         if ret == 0:
-            return val.doubleValue / 1e9  # nanojoules -> Joules
+            # O contador PDH acumula picowatt-hora (1 pWh = 3,6e-9 J), conferido
+            # contra o contador de potencia (mW) do mesmo conjunto.
+            return val.doubleValue * 3.6e-9
         return 0.0
 
     def read_gpu_energy_joules(self) -> float:
@@ -125,23 +130,20 @@ class EnergyMonitor:
 
     def measure_idle_power(self, duration_s: float = 3.0) -> float:
         """
-        Mede a potencia estatica de repouso (P_idle) do sistema ao longo de duration_s.
+        Mede a potencia de repouso do pacote da CPU (P_idle) ao longo de duration_s.
         Permite isolar a energia dinamica consumida especificamente pelo algoritmo.
         """
         cpu0 = self.read_cpu_energy_joules()
-        gpu0 = self.read_gpu_energy_joules()
         t0 = time.perf_counter()
 
         time.sleep(duration_s)
 
         t1 = time.perf_counter()
         cpu1 = self.read_cpu_energy_joules()
-        gpu1 = self.read_gpu_energy_joules()
 
         dt = t1 - t0
         d_cpu = max(0.0, cpu1 - cpu0)
-        d_gpu = max(0.0, gpu1 - gpu0)
-        idle_w = (d_cpu + d_gpu) / dt if dt > 0 else 0.0
+        idle_w = d_cpu / dt if dt > 0 else 0.0
         self.last_idle_power_w = idle_w
         return idle_w
 
@@ -177,7 +179,7 @@ class EnergyMonitor:
         delta_cpu = max(0.0, cpu_e1 - cpu_e0)
         delta_gpu = max(0.0, gpu_e1 - gpu_e0)
         total_j = delta_cpu + delta_gpu
-        dynamic_j = max(0.0, total_j - (idle_power_w * dt))
+        dynamic_j = max(0.0, delta_cpu - (idle_power_w * dt))
 
         cpu_pw = delta_cpu / dt if dt > 0 else 0.0
         gpu_pw = delta_gpu / dt if dt > 0 else 0.0

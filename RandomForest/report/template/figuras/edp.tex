@@ -7,22 +7,24 @@
 \begin{tikzpicture}
 \begin{axis}[
   width=9.2cm,
-  height=4.0cm,
+  height=3.4cm,
   scale only axis,
   xlabel={Threads OpenMP},
   ylabel={Fator sobre 1 thread},
-  xtick={1,2,4,8,16,32},
-  xmin=0, xmax=34,
-  ymin=0, ymax=23,
-  ytick={0,5,10,15,20},
+  xmode=log, log basis x=2,
+  xtick={1,2,4,8,12,16,32},
+  xticklabels={1,2,4,8,12,16,32},
+  xmin=0.9, xmax=36,
+  ymin=0, ymax=33,
+  ytick={0,10,20,30},
   tick label style={font=\small},
   label style={font=\small},
   axis line style={black},
   tick style={black},
   legend style={
     font=\footnotesize,
-    at={(0.98,0.20)},
-    anchor=south east,
+    at={(0.02,0.98)},
+    anchor=north west,
     legend columns=2,
     draw=none,
     fill=white,
@@ -33,16 +35,16 @@
   clip=true
 ]
 \addplot[black, dashdotted, mark=triangle*, mark size=1.8pt, line width=0.75pt]
-  coordinates {(1,1) (2,2.4446) (4,5.9174) (8,10.3628) (16,12.8059) (32,14.3641)};
+  coordinates {(1,1.000) (2,2.913) (4,7.753) (8,15.559) (12,24.224) (16,28.683) (32,30.301)};
 \addlegendentry{Letter, EDP}
 \addplot[black, solid, mark=diamond*, mark size=1.9pt, line width=0.95pt]
-  coordinates {(1,1) (2,2.7648) (4,7.7585) (8,12.4320) (16,19.2710) (32,20.8063)};
+  coordinates {(1,1.000) (2,2.850) (4,6.538) (8,9.524) (12,12.299) (16,13.601) (32,14.019)};
 \addlegendentry{Covertype, EDP}
 \addplot[black!50, dashdotted, mark=triangle*, mark size=1.8pt, line width=0.75pt]
-  coordinates {(1,1) (2,1.2616) (4,1.6317) (8,1.8608) (16,1.9987) (32,2.1640)};
+  coordinates {(1,1.000) (2,1.551) (4,2.304) (8,2.999) (12,3.539) (16,3.912) (32,3.968)};
 \addlegendentry{Letter, energia}
 \addplot[black!50, solid, mark=diamond*, mark size=1.9pt, line width=0.95pt]
-  coordinates {(1,1) (2,1.4940) (4,2.3165) (8,2.7137) (16,3.3472) (32,3.5454)};
+  coordinates {(1,1.000) (2,1.557) (4,2.155) (8,2.390) (12,2.672) (16,2.810) (32,2.828)};
 \addlegendentry{Covertype, energia}
 \end{axis}
 \end{tikzpicture}
