@@ -271,7 +271,7 @@ Covertype (192{,}4\,s para 34{,}9\,s), 7{,}72$\times$ no WDBC e 3{,}43$\times$ n
 \begin{table}[!htbp]
 \centering
 \caption{Tempo de treinamento (s; ms em Iris e WDBC): mediana $\tilde{t}$, média
-$\bar{t}$ e desvio padrão $s$ de $n$ execuções ($n = 30$, 30, 10 e 5), e speedup $S$
+$\bar{t}$ e desvio padrão $\sigma$ de $n$ execuções ($n = 30$, 30, 10 e 5), e speedup $S$
 pela razão das medianas.}
 \label{tab:treino}
 \footnotesize
@@ -282,22 +282,22 @@ Conjunto & & 1 & 2 & 4 & 8 & 12 & 16 & 32 \\
 \midrule
 Iris (ms) & $\tilde{t}$ & 10{,}4 & 5{,}7 & 3{,}6 & 3{,}0 & 2{,}6 & 2{,}6 & 3{,}0 \\
        & $\bar{t}$ & 10{,}4 & 5{,}8 & 3{,}7 & 3{,}1 & 2{,}7 & 2{,}8 & 3{,}0 \\
-       & $s$ & 0{,}5 & 0{,}4 & 0{,}4 & 0{,}4 & 0{,}2 & 0{,}5 & 0{,}3 \\
+       & $\sigma$ & 0{,}5 & 0{,}4 & 0{,}4 & 0{,}4 & 0{,}2 & 0{,}5 & 0{,}3 \\
        & $S$ & 1{,}00 & 1{,}82 & 2{,}88 & 3{,}44 & 3{,}93 & 3{,}99 & 3{,}43 \\
 \addlinespace
 WDBC (ms) & $\tilde{t}$ & 128{,}2 & 68{,}1 & 36{,}9 & 25{,}4 & 21{,}0 & 17{,}6 & 16{,}6 \\
        & $\bar{t}$ & 128{,}3 & 68{,}6 & 37{,}1 & 25{,}4 & 20{,}8 & 17{,}9 & 16{,}9 \\
-       & $s$ & 2{,}1 & 3{,}1 & 1{,}1 & 1{,}1 & 1{,}5 & 1{,}1 & 1{,}2 \\
+       & $\sigma$ & 2{,}1 & 3{,}1 & 1{,}1 & 1{,}1 & 1{,}5 & 1{,}1 & 1{,}2 \\
        & $S$ & 1{,}00 & 1{,}88 & 3{,}47 & 5{,}04 & 6{,}11 & 7{,}30 & 7{,}72 \\
 \addlinespace
 Letter & $\tilde{t}$ & 8{,}01 & 4{,}40 & 2{,}56 & 1{,}60 & 1{,}25 & 1{,}15 & 1{,}09 \\
        & $\bar{t}$ & 8{,}01 & 4{,}41 & 2{,}54 & 1{,}60 & 1{,}26 & 1{,}14 & 1{,}10 \\
-       & $s$ & 0{,}09 & 0{,}07 & 0{,}06 & 0{,}02 & 0{,}06 & 0{,}03 & 0{,}05 \\
+       & $\sigma$ & 0{,}09 & 0{,}07 & 0{,}06 & 0{,}02 & 0{,}06 & 0{,}03 & 0{,}05 \\
        & $S$ & 1{,}00 & 1{,}82 & 3{,}13 & 5{,}02 & 6{,}42 & 6{,}99 & 7{,}36 \\
 \addlinespace
 Cover & $\tilde{t}$ & 192{,}4 & 103{,}3 & 60{,}1 & 44{,}4 & 37{,}8 & 35{,}8 & 34{,}9 \\
        & $\bar{t}$ & 193{,}0 & 104{,}1 & 60{,}2 & 44{,}7 & 37{,}8 & 35{,}7 & 34{,}8 \\
-       & $s$ & 1{,}8 & 1{,}1 & 0{,}6 & 0{,}6 & 0{,}2 & 0{,}5 & 0{,}5 \\
+       & $\sigma$ & 1{,}8 & 1{,}1 & 0{,}6 & 0{,}6 & 0{,}2 & 0{,}5 & 0{,}5 \\
        & $S$ & 1{,}00 & 1{,}86 & 3{,}20 & 4{,}34 & 5{,}08 & 5{,}37 & 5{,}51 \\
 \bottomrule
 \end{tabular}
@@ -324,7 +324,7 @@ threads). No Covertype ele passa de 210{,}5\,s para 42{,}8\,s (4{,}92$\times$ em
 \centering
 \includegraphics[width=\textwidth]{figuras/speedup.pdf}
 \caption{Speedup de treinamento (mediana) em relação à mesma implementação OpenMP
-com uma thread. As barras vão do menor ao maior speedup individual. A reta
+com uma thread. As barras indicam $\pm\sigma$, o desvio padrão amostral dos speedups individuais. A reta
 tracejada é o speedup linear; o eixo horizontal está em escala logarítmica.}
 \label{fig:speedup}
 \end{figure}
@@ -354,12 +354,12 @@ Conjunto & & 1 & 2 & 4 & 8 & 12 & 16 & 32 \\
 \midrule
 Letter & $\tilde{t}$ & 1{,}75 & 0{,}88 & 0{,}42 & 0{,}24 & 0{,}17 & 0{,}16 & 0{,}16 \\
        & $\bar{t}$ & 1{,}77 & 0{,}88 & 0{,}42 & 0{,}25 & 0{,}17 & 0{,}16 & 0{,}17 \\
-       & $s$ & 0{,}10 & 0{,}04 & 0{,}03 & 0{,}01 & 0{,}01 & 0{,}02 & 0{,}02 \\
+       & $\sigma$ & 0{,}10 & 0{,}04 & 0{,}03 & 0{,}01 & 0{,}01 & 0{,}02 & 0{,}02 \\
        & $S$ & 1{,}00 & 1{,}98 & 4{,}15 & 7{,}14 & 10{,}36 & 10{,}88 & 10{,}67 \\
 \addlinespace
 Cover & $\tilde{t}$ & 11{,}38 & 5{,}55 & 2{,}75 & 1{,}59 & 1{,}15 & 1{,}01 & 1{,}00 \\
        & $\bar{t}$ & 11{,}41 & 5{,}60 & 2{,}77 & 1{,}60 & 1{,}16 & 1{,}01 & 0{,}99 \\
-       & $s$ & 0{,}09 & 0{,}17 & 0{,}07 & 0{,}03 & 0{,}01 & 0{,}02 & 0{,}03 \\
+       & $\sigma$ & 0{,}09 & 0{,}17 & 0{,}07 & 0{,}03 & 0{,}01 & 0{,}02 & 0{,}03 \\
        & $S$ & 1{,}00 & 2{,}05 & 4{,}14 & 7{,}15 & 9{,}89 & 11{,}25 & 11{,}34 \\
 \bottomrule
 \end{tabular}
@@ -390,12 +390,12 @@ Conjunto & & 1 & 2 & 4 & 8 & 12 & 16 & 32 \\
 \midrule
 Letter & $\tilde{E}$ & 243{,}3 & 156{,}9 & 105{,}6 & 81{,}1 & 68{,}7 & 62{,}2 & 61{,}3 \\
        & $\bar{E}$ & 246{,}6 & 157{,}3 & 105{,}5 & 81{,}3 & 68{,}7 & 62{,}1 & 61{,}8 \\
-       & $s$ & 9{,}3 & 7{,}8 & 5{,}6 & 2{,}7 & 4{,}0 & 3{,}6 & 3{,}5 \\
+       & $\sigma$ & 9{,}3 & 7{,}8 & 5{,}6 & 2{,}7 & 4{,}0 & 3{,}6 & 3{,}5 \\
        & $S_{\mathrm{EDP}}$ & 1{,}00 & 2{,}91 & 7{,}75 & 15{,}56 & 24{,}22 & 28{,}68 & 30{,}30 \\
 \addlinespace
 Cover & $\tilde{E}$ & 5{.}194 & 3{.}336 & 2{.}410 & 2{.}174 & 1{.}944 & 1{.}849 & 1{.}837 \\
        & $\bar{E}$ & 5{.}270 & 3{.}411 & 2{.}401 & 2{.}174 & 1{.}950 & 1{.}867 & 1{.}837 \\
-       & $s$ & 189 & 117 & 35 & 27 & 20 & 37 & 28 \\
+       & $\sigma$ & 189 & 117 & 35 & 27 & 20 & 37 & 28 \\
        & $S_{\mathrm{EDP}}$ & 1{,}00 & 2{,}85 & 6{,}54 & 9{,}52 & 12{,}30 & 13{,}60 & 14{,}02 \\
 \bottomrule
 \end{tabular}
@@ -405,7 +405,8 @@ Cover & $\tilde{E}$ & 5{.}194 & 3{.}336 & 2{.}410 & 2{.}174 & 1{.}944 & 1{.}849 
 \centering
 \includegraphics[width=0.72\textwidth]{figuras/edp.pdf}
 \caption{Redução da energia do pacote ($E_1/E_p$, em cinza) e speedup de EDP (em
-preto) sobre a execução com uma thread, em Letter e Covertype (medianas). O EDP
+preto) sobre a execução com uma thread, em Letter e Covertype (medianas). As barras nas curvas de energia indicam $\pm\sigma$,
+o desvio padrão amostral da energia. O EDP
 cresce mais que a energia porque multiplica a redução de energia pela redução de
 tempo. As duas curvas ficam quase planas acima de 16 threads.}
 \label{fig:edp}
