@@ -7,13 +7,15 @@
 \begin{tikzpicture}
 \begin{axis}[
   width=12.2cm,
-  height=6.15cm,
+  height=5.2cm,
   scale only axis,
   xlabel={Threads OpenMP},
   ylabel={Speedup de treino},
-  xtick={1,2,4,8,16,32},
-  xmin=0, xmax=34,
-  ymin=0, ymax=8.6,
+  xmode=log, log basis x=2,
+  xtick={1,2,4,8,12,16,32},
+  xticklabels={1,2,4,8,12,16,32},
+  xmin=0.9, xmax=36,
+  ymin=0, ymax=8.9,
   ytick={0,2,4,6,8},
   tick label style={font=\small},
   label style={font=\small},
@@ -30,21 +32,28 @@
     /tikz/every odd column/.append style={column sep=0.85em}
   },
   legend cell align={left},
-  clip=true
+  clip=true,
+  % Barras: mediana +- desvio padrao amostral (sigma) dos speedups individuais (mediana de T1 / cada Tp).
+  eb/.style={
+    error bars/.cd, y dir=both, y explicit,
+    error bar style={line width=0.4pt, solid},
+    error mark options={rotate=90, mark size=1.5pt, line width=0.4pt, solid}
+  }
 ]
-\addplot[black!50, dashed, line width=0.6pt, domain=0:34, samples=2] {x};
+\addplot[black!50, dashed, line width=0.6pt, domain=1:36, samples=40, forget plot] {x};
+\addplot[black!50, dashed, line width=0.6pt] coordinates {(0.5,-1)};
 \addlegendentry{linear}
-\addplot[black!65, solid, mark=*, mark size=1.6pt, line width=0.7pt]
-  coordinates {(1,1) (2,2.0000) (4,1.1304) (8,2.8889) (16,2.3636) (32,1.1304)};
+\addplot[black!65, solid, mark=*, mark size=1.6pt, line width=0.7pt, eb]
+  coordinates {(1,1.000) +- (0,0.044) (2,1.823) +- (0,0.101) (4,2.884) +- (0,0.301) (8,3.435) +- (0,0.392) (12,3.933) +- (0,0.306) (16,3.992) +- (0,0.509) (32,3.429) +- (0,0.298)};
 \addlegendentry{Iris}
-\addplot[black, dashed, mark=square*, mark size=1.5pt, line width=0.7pt]
-  coordinates {(1,1) (2,1.5859) (4,2.4024) (8,4.7765) (16,6.1515) (32,4.6667)};
+\addplot[black, dashed, mark=square*, mark size=1.5pt, line width=0.7pt, eb]
+  coordinates {(1,1.000) +- (0,0.016) (2,1.882) +- (0,0.080) (4,3.468) +- (0,0.104) (8,5.037) +- (0,0.211) (12,6.110) +- (0,0.445) (16,7.299) +- (0,0.437) (32,7.723) +- (0,0.528)};
 \addlegendentry{WDBC}
-\addplot[black, dashdotted, mark=triangle*, mark size=1.8pt, line width=0.75pt]
-  coordinates {(1,1) (2,1.9713) (4,3.8124) (8,5.9572) (16,6.8652) (32,7.1891)};
+\addplot[black, dashdotted, mark=triangle*, mark size=1.8pt, line width=0.75pt, eb]
+  coordinates {(1,1.000) +- (0,0.011) (2,1.822) +- (0,0.028) (4,3.134) +- (0,0.075) (8,5.022) +- (0,0.056) (12,6.418) +- (0,0.283) (16,6.988) +- (0,0.213) (32,7.355) +- (0,0.286)};
 \addlegendentry{Letter}
-\addplot[black, solid, mark=diamond*, mark size=1.9pt, line width=0.95pt]
-  coordinates {(1,1) (2,1.9098) (4,3.6827) (8,5.3677) (16,7.2159) (32,7.3245)};
+\addplot[black, solid, mark=diamond*, mark size=1.9pt, line width=0.95pt, eb]
+  coordinates {(1,1.000) +- (0,0.009) (2,1.862) +- (0,0.020) (4,3.199) +- (0,0.030) (8,4.337) +- (0,0.057) (12,5.083) +- (0,0.024) (16,5.371) +- (0,0.069) (32,5.512) +- (0,0.085)};
 \addlegendentry{Covertype}
 \end{axis}
 \end{tikzpicture}

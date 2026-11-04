@@ -1,3 +1,7 @@
+#ifndef _WIN32
+#define _POSIX_C_SOURCE 199309L /* clock_gettime under -std=c11 */
+#endif
+
 #include "rf.h"
 
 #include <omp.h>
@@ -5,14 +9,29 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include <windows.h>
+
+/* QueryPerformanceCounter: monotonic, sub-microsecond on Windows. */
+static double wall_now(void)
+{
+    static LARGE_INTEGER freq;
+    LARGE_INTEGER c;
+    if (!freq.QuadPart)
+        QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&c);
+    return (double)c.QuadPart / (double)freq.QuadPart;
+}
+#else
 #include <time.h>
 
 static double wall_now(void)
 {
     struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
+    clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 }
+#endif
 
 static void usage(const char *argv0)
 {

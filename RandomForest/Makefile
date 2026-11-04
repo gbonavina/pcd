@@ -6,7 +6,8 @@ PYTHON ?= python
 all:
 	$(MAKE) -C openmp
 
-# Varredura 1..32 threads com energia RAPL: gera openmp_scaling.csv.
+# Varredura 1..32 threads com energia RAPL: gera openmp_runs.csv e openmp_scaling.csv.
+# Recusa sobrescrever um openmp_runs.csv existente (use o script com --overwrite).
 experimentos: all
 	$(PYTHON) run_openmp_experiments.py
 
