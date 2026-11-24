@@ -52,12 +52,19 @@ int dataset_load_csv(const char *path, Dataset *ds, const char *target);
 void dataset_free(Dataset *ds);
 
 int forest_train(Forest *f, const Dataset *ds, const ForestParams *p);
+
+int forest_train_partition(Forest *f, const Dataset *ds, const ForestParams *p, int first_tree, int stride);
+void forest_count_votes(const Forest *f, const double *x, int *votes);
+int majority_class(const int *counts, int n_classes);
+
 int forest_predict_one(const Forest *f, const double *x);
 void forest_predict(const Forest *f, const Dataset *ds, int *out);
 double forest_accuracy(const Forest *f, const Dataset *ds);
 void forest_free(Forest *f);
 /* Graphviz DOT of trees[tree_index]. Returns 0 on success. */
 int forest_write_dot(const Forest *f, int tree_index, const char *path);
+/* Use global_index in the DOT graph name for a partitioned forest. */
+int forest_write_dot_global(const Forest *f, int tree_index, int global_index, const char *path);
 
 void dataset_split_holdout(const Dataset *full, Dataset *train, Dataset *test,
                            double test_frac, uint32_t seed);

@@ -2,7 +2,6 @@
 
 #include <ctype.h>
 #include <math.h>
-#include <omp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -486,6 +485,13 @@ static void copy_rows(const Dataset *full, Dataset *out, const int *rows, int n_
     out->target_name = NULL;
     out->x = malloc((size_t)n_rows * (size_t)nf * sizeof(double));
     out->y = malloc((size_t)n_rows * sizeof(int));
+
+    if (!out->x || !out->y) {
+        free(out->x); free(out->y);
+        memset(out, 0, sizeof(*out));
+        return;
+    }
+
     for (int i = 0; i < n_rows; i++) {
         int r = rows[i];
         memcpy(out->x + (size_t)i * (size_t)nf,
@@ -518,6 +524,7 @@ void dataset_split_holdout(const Dataset *full, Dataset *train, Dataset *test,
     int n_train = n - n_test;
 
     int *counts = calloc((size_t)n_classes, sizeof(int));
+    if (!counts) return;
     for (int i = 0; i < n; i++)
         counts[full->y[i]]++;
 
@@ -531,6 +538,7 @@ void dataset_split_holdout(const Dataset *full, Dataset *train, Dataset *test,
     /* Fall back to a plain shuffle if a class is too small to stratify. */
     if (n_classes < 2 || min_c < 2 || n_train < n_classes || n_test < n_classes) {
         int *perm = malloc((size_t)n * sizeof(int));
+        if (!perm) { free(counts); return; }
         for (int i = 0; i < n; i++)
             perm[i] = i;
         shuffle_ints(perm, n, &rng);
@@ -642,7 +650,7 @@ static int tree_add_node(Tree *t) {
     return id;
 }
 
-static int majority_class(const int *counts, int n_classes) {
+int majority_class(const int *counts, int n_classes) {
     int best = 0;
     for (int k = 1; k < n_classes; k++)
         if (counts[k] > counts[best])
@@ -723,6 +731,7 @@ static BestSplit find_best_split(const Dataset *ds, const int *idx, int n,
     int *feats = malloc((size_t)mtry * sizeof(int));
     if (!feats || pick_mtry_features(feats, ds->n_features, mtry, rng) != 0) {
         free(feats);
+        best.ok = -1;
         return best;
     }
 
@@ -734,6 +743,7 @@ static BestSplit find_best_split(const Dataset *ds, const int *idx, int n,
         free(pairs);
         free(left_c);
         free(right_c);
+        best.ok = -1;
         return best;
     }
 
@@ -807,6 +817,8 @@ static int grow_node(Tree *t, const Dataset *ds, int *idx, int n, int depth,
         return id;
 
     BestSplit sp = find_best_split(ds, idx, n, mtry, rng, n_classes);
+    if (sp.ok < 0)
+        return -1;
     if (!sp.ok)
         return id;
 
@@ -825,7 +837,7 @@ static int grow_node(Tree *t, const Dataset *ds, int *idx, int n, int depth,
     if (!left_idx || !right_idx) {
         free(left_idx);
         free(right_idx);
-        return id;
+        return -1;
     }
     int li = 0, ri = 0;
     for (int i = 0; i < n; i++) {
@@ -840,14 +852,18 @@ static int grow_node(Tree *t, const Dataset *ds, int *idx, int n, int depth,
      * take the address of t->nodes[id].left before the recursive calls. */
     int left = grow_node(t, ds, left_idx, n_left, depth + 1,
                          max_depth, min_samples_split, mtry, rng, scratch);
-    int right = grow_node(t, ds, right_idx, n_right, depth + 1,
+    int right = -1;
+    if (left >= 0)
+        right = grow_node(t, ds, right_idx, n_right, depth + 1,
                           max_depth, min_samples_split, mtry, rng, scratch);
+    free(left_idx);
+    free(right_idx);
+    if (left < 0 || right < 0)
+        return -1;
     t->nodes[id].feature = sp.feature;
     t->nodes[id].threshold = sp.threshold;
     t->nodes[id].left = left;
     t->nodes[id].right = right;
-    free(left_idx);
-    free(right_idx);
     return id;
 }
 
@@ -900,44 +916,58 @@ static void tree_free(Tree *t) {
 /* ---------- Forest ---------------------------------------------------------- */
 
 int forest_train(Forest *f, const Dataset *ds, const ForestParams *p) {
+    return forest_train_partition(f, ds, p, 0, 1);
+}
+
+int forest_train_partition(Forest *f, const Dataset *ds, const ForestParams *p, int first_tree, int stride) {
     memset(f, 0, sizeof(*f));
-    f->n_trees = p->n_trees > 0 ? p->n_trees : 10;
+    if (first_tree < 0 || stride <= 0)
+        return -1;
+
+    int total_trees = p->n_trees > 0 ? p->n_trees : 10;
+    if (first_tree < total_trees) f->n_trees = 1 + (total_trees - 1 - first_tree) / stride;
+
     f->n_features = ds->n_features;
     f->n_classes = ds->n_classes;
     f->max_depth = p->max_depth > 0 ? p->max_depth : 16;
     f->min_samples_split = p->min_samples_split > 1 ? p->min_samples_split : 2;
-    if (p->mtry > 0)
-        f->mtry = p->mtry;
-    else {
-        int m = (int)sqrt((double)ds->n_features);
-        f->mtry = m < 1 ? 1 : m;
-    }
-    if (f->mtry > ds->n_features)
-        f->mtry = ds->n_features;
+    f->mtry = p->mtry > 0 ? p->mtry : (int)sqrt((double)ds->n_features);
+    if (f->mtry > ds->n_features) f->mtry = ds->n_features;
 
-    f->trees = calloc((size_t)f->n_trees, sizeof(Tree));
-    if (!f->trees)
-        return -1;
+    if (f->n_trees == 0) return 0;
+
+    f->trees = calloc((size_t)f->n_trees, sizeof(*f->trees));
+    if (!f->trees) return -1;
 
     int fail = 0;
-    /*
-     * Trees are independent: per-tree bootstrap, RNG, and node arena.
-     * Uneven tree sizes => schedule(dynamic). Do not share Tree.nodes.
-     */
-#pragma omp parallel for schedule(dynamic) default(none) shared(f, ds, p, fail)
+#ifdef _OPENMP
+#pragma omp parallel for schedule(dynamic) default(none) \
+    shared(f, ds, p, first_tree, stride) reduction(|:fail)
+#endif
     for (int t = 0; t < f->n_trees; t++) {
-        uint32_t seed = p->seed + (uint32_t)t * 0x9E3779B9u + 1u;
+        int global_tree = first_tree + t * stride;
+        uint32_t seed = p->seed + (uint32_t)global_tree * 0x9E3779B9u + 1u;
         if (tree_grow(&f->trees[t], ds, f->max_depth, f->min_samples_split,
-                      f->mtry, seed) != 0) {
-#pragma omp atomic write
+                      f->mtry, seed) != 0)
             fail = 1;
-        }
     }
+
     if (fail) {
         forest_free(f);
         return -1;
     }
+
     return 0;
+}
+
+void forest_count_votes(const Forest *f, const double *x, int *votes) {
+    memset(votes, 0, (size_t)f->n_classes * sizeof(*votes));
+
+    for (int t = 0; t < f->n_trees; t++) {
+        int cls = tree_predict_one(&f->trees[t], x, f->n_features);
+        if (cls >= 0 && cls < f->n_classes)
+            votes[cls]++;
+    }
 }
 
 int forest_predict_one(const Forest *f, const double *x) {
@@ -945,21 +975,7 @@ int forest_predict_one(const Forest *f, const double *x) {
     if (!votes)
         return 0;
 
-    /*
-     * OPENMP (weaker): vote over trees for a *single* row. Prefer parallelizing
-     * the outer sample loop in forest_predict instead. Example:
-     *
-     *   #pragma omp parallel for reduction(+:votes[:f->n_classes])
-     *
-     * (OpenMP 4.5 array reduction.) Or a thread-local vote buffer then atomic
-     * add. Only useful if n_trees is huge and n_rows == 1.
-     */
-    /* #pragma omp parallel for reduction(+:votes[:f->n_classes]) */
-    for (int t = 0; t < f->n_trees; t++) {
-        int c = tree_predict_one(&f->trees[t], x, f->n_features);
-        if (c >= 0 && c < f->n_classes)
-            votes[c]++;
-    }
+    forest_count_votes(f, x, votes);
     int pred = majority_class(votes, f->n_classes);
     free(votes);
     return pred;
@@ -967,7 +983,9 @@ int forest_predict_one(const Forest *f, const double *x) {
 
 void forest_predict(const Forest *f, const Dataset *ds, int *out) {
     /* Rows independent; trees read-only. */
+#ifdef _OPENMP
 #pragma omp parallel for schedule(static) default(none) shared(f, ds, out)
+#endif
     for (int i = 0; i < ds->n_samples; i++)
         out[i] = forest_predict_one(f, ds->x + (size_t)i * (size_t)ds->n_features);
 }
@@ -980,7 +998,9 @@ double forest_accuracy(const Forest *f, const Dataset *ds) {
         return 0.0;
     forest_predict(f, ds, pred);
     int ok = 0;
+#ifdef _OPENMP
 #pragma omp parallel for schedule(static) reduction(+:ok) default(none) shared(ds, pred)
+#endif
     for (int i = 0; i < ds->n_samples; i++)
         if (pred[i] == ds->y[i])
             ok++;
@@ -988,7 +1008,7 @@ double forest_accuracy(const Forest *f, const Dataset *ds) {
     return (double)ok / (double)ds->n_samples;
 }
 
-int forest_write_dot(const Forest *f, int tree_index, const char *path) {
+int forest_write_dot_global(const Forest *f, int tree_index, int global_index, const char *path) {
     if (!f || !f->trees || !path || tree_index < 0 || tree_index >= f->n_trees)
         return -1;
     const Tree *t = &f->trees[tree_index];
@@ -996,7 +1016,7 @@ int forest_write_dot(const Forest *f, int tree_index, const char *path) {
     if (!fp)
         return -1;
 
-    fprintf(fp, "digraph tree_%d {\n", tree_index);
+    fprintf(fp, "digraph tree_%d {\n", global_index);
     fprintf(fp, "  rankdir=TB;\n");
     fprintf(fp, "  node [fontname=Helvetica];\n");
     for (int i = 0; i < t->n_nodes; i++) {
@@ -1017,6 +1037,10 @@ int forest_write_dot(const Forest *f, int tree_index, const char *path) {
     }
     fprintf(fp, "}\n");
     return fclose(fp) == 0 ? 0 : -1;
+}
+
+int forest_write_dot(const Forest *f, int tree_index, const char *path) {
+    return forest_write_dot_global(f, tree_index, tree_index, path);
 }
 
 void forest_free(Forest *f) {

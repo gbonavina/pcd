@@ -1,23 +1,24 @@
 CC = gcc
-CFLAGS = -O2 -std=c11 -Wall -Wextra -I src -fopenmp
-LDFLAGS = -lm -fopenmp
+CPPFLAGS += -I../common
+CFLAGS = -O2 -std=c11 -Wall -Wextra -fopenmp
+LDLIBS += -lm -fopenmp
 
-SRC = src/rf.c src/main.c
-OBJ = $(SRC:.c=.o)
+OBJ = src/main.o rf.o
 
-.PHONY: all clean run
-
+.PHONY: all run clean
 all: rf
 
 rf: $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $(OBJ) $(LDFLAGS)
+	$(CC) $(LDFLAGS) -o $@ $(OBJ) $(LDLIBS)
 
-src/%.o: src/%.c src/rf.h
-	$(CC) $(CFLAGS) -c -o $@ $<
+src/main.o: src/main.c ../common/rf.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-# Data lives in ../data (same CSVs as the sequential binary).
+rf.o: ../common/rf.c ../common/rf.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
 run: rf
 	./rf --data ../data/iris.csv --trees 100 --max-depth 8 --min-samples 2 --seed 42
 
 clean:
-	rm -f rf src/*.o
+	rm -f rf $(OBJ) src/rf.o

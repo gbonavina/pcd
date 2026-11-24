@@ -1,10 +1,13 @@
 PYTHON ?= python
 
-.PHONY: all experimentos tune artigo clean
+.PHONY: all mpi experimentos tune artigo clean
 
 # Binario OpenMP usado em todos os experimentos do artigo.
 all:
 	$(MAKE) -C openmp
+
+mpi:
+	$(MAKE) -C mpi
 
 # Varredura 1..32 threads com energia RAPL: gera openmp_runs.csv e openmp_scaling.csv.
 # Recusa sobrescrever um openmp_runs.csv existente (use o script com --overwrite).

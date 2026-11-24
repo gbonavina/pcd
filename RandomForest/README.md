@@ -113,3 +113,15 @@ Hiperparâmetros usados (semente 42, holdout de 20%):
 ```
 
 O número de threads vem de `OMP_NUM_THREADS`.
+
+## Versão MPI
+
+Requer `make`, `mpicc` e `mpirun` de uma instalação MPI. A partir de `RandomForest/`:
+
+```bash
+make -C openmp
+make mpi
+mpirun -np 4 ./mpi/rf --data data/iris.csv --trees 300 --max-depth 12 --min-samples 5 --mtry 2 --test-frac 0.2 --seed 42
+```
+
+`--trees` define o total de árvores; `--dot arquivo.dot --dot-tree N` exporta a árvore global N. Os tempos são os maiores entre os processos e a predição inclui a redução dos votos.
